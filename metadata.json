@@ -1,0 +1,6 @@
+{
+  "name": "Worten CRO Landing Page",
+  "description": "High-converting retail and e-commerce portal landing page based on CRO & persuasion architecture with risk-reversal, financing, and circular economy services.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

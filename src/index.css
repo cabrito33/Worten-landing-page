@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --worten-red: #DE001A;
+    --worten-red-dark: #BF0016;
+    --worten-red-light: #FFF0F2;
+    --worten-dark: #141414;
+    --worten-gray: #F4F4F6;
+    --worten-border: #E5E5E7;
+    --worten-yellow: #FFC700;
+    --worten-green: #008A00;
+  }
+}
+
+/* Worten Brand Utility Classes */
+.bg-worten-red {
+  background-color: #DE001A;
+}
+
+.bg-worten-red-dark {
+  background-color: #BF0016;
+}
+
+.bg-worten-red-light {
+  background-color: #FFF0F2;
+}
+
+.text-worten-red {
+  color: #DE001A;
+}
+
+.border-worten-red {
+  border-color: #DE001A;
+}
+
+.hover\:bg-worten-red:hover {
+  background-color: #DE001A;
+}
+
+.hover\:bg-worten-red-dark:hover {
+  background-color: #BF0016;
+}
+
+.hover\:text-worten-red:hover {
+  color: #DE001A;
+}
+
+.bg-worten-yellow {
+  background-color: #FFC700;
+}
+
+.text-worten-yellow {
+  color: #FFC700;
+}
+
+.bg-worten-green {
+  background-color: #008A00;
+}
+
+.text-worten-green {
+  color: #008A00;
+}
+
+.bg-worten-gray {
+  background-color: #F4F4F6;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #D1D5DB;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #9CA3AF;
+}
