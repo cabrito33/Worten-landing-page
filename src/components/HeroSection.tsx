@@ -113,162 +113,249 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
     },
   ];
 
+  const isCoffeeSlide = slide.bannerTheme === 'coffee';
+
   return (
     <section id="hero" className="relative bg-[#F4F4F6] text-neutral-900 overflow-hidden">
-      {/* Dynamic Promotional Hero Carousel (Worten Red #DF0000 Banner) */}
+      {/* Dynamic Promotional Hero Carousel Banner */}
       <div
-        className="relative min-h-[420px] sm:min-h-[460px] md:min-h-[500px] flex items-center bg-gradient-to-r from-[#DE001A] via-[#CD0018] to-[#990013] text-white"
+        className={`relative min-h-[380px] sm:min-h-[420px] md:min-h-[460px] flex items-center transition-colors duration-500 overflow-hidden ${
+          isCoffeeSlide
+            ? 'bg-[#E6D7C3] text-neutral-900'
+            : 'bg-gradient-to-r from-[#DE001A] via-[#CD0018] to-[#990013] text-white'
+        }`}
         onMouseEnter={() => setIsPaused(true)}
         onMouseLeave={() => setIsPaused(false)}
       >
-        {/* Subtle decorative grid/glow pattern */}
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.18),transparent_70%)] pointer-events-none" />
+        {/* Top-Right Pause / Play control */}
+        <button
+          onClick={() => setIsPaused(!isPaused)}
+          aria-label={isPaused ? 'Continuar carrossel' : 'Pausar carrossel'}
+          className="absolute top-4 right-4 z-30 p-2 rounded-full text-neutral-600 hover:text-neutral-900 hover:bg-black/5 transition-colors cursor-pointer"
+        >
+          <div className="flex items-center gap-0.5 text-xs font-mono font-bold tracking-widest px-1">
+            {isPaused ? '▶' : '❚❚'}
+          </div>
+        </button>
 
-        {/* Carousel Slide Content */}
-        <div className="relative max-w-7xl mx-auto px-4 py-8 md:py-12 w-full z-10">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
-            {/* Left Content */}
-            <div className="lg:col-span-7 space-y-4 sm:space-y-6">
-              {/* Badges & Live Countdown Tag */}
-              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                <span className="px-3 py-1 bg-white text-[#DE001A] text-xs font-black uppercase tracking-wider rounded-md shadow-sm flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-[#DE001A]" />
-                  {slide.badge}
-                </span>
-                <span className="px-3 py-1 bg-black/30 text-white text-xs font-bold rounded-md border border-white/20">
-                  {slide.category}
-                </span>
-                {/* Live Urgency Countdown Pill */}
-                <span className="px-3 py-1 bg-amber-400 text-neutral-950 text-xs font-black rounded-md flex items-center gap-1.5 shadow-xs">
-                  <Clock className="w-3.5 h-3.5" />
-                  <span>
-                    Termina em: {String(countdown.days).padStart(2, '0')}d {String(countdown.hours).padStart(2, '0')}h {String(countdown.minutes).padStart(2, '0')}m {String(countdown.seconds).padStart(2, '0')}s
-                  </span>
-                </span>
-              </div>
-
-              {/* Promotional Headline */}
-              <h1 className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tight text-white leading-tight">
-                {slide.headline}
-              </h1>
-
-              <p className="text-base sm:text-lg text-red-50 max-w-2xl leading-relaxed font-normal">
-                {slide.subheadline}
-              </p>
-
-              {/* Legal micro-copy */}
-              {slide.legalText && (
-                <p className="text-xs text-red-200 max-w-xl italic flex items-center gap-1.5">
-                  <Info className="w-3.5 h-3.5 text-red-200 shrink-0" />
-                  <span>{slide.legalText}</span>
-                </p>
-              )}
-
-              {/* Interactive Action Buttons */}
-              <div className="flex flex-wrap items-center gap-3.5 pt-1">
-                <button
-                  id={`hero-slide-cta-${slide.id}`}
-                  onClick={() => {
-                    onSelectDeal(slide.headline);
-                    onNavigateTo('promocoes');
-                  }}
-                  className="px-6 py-3.5 bg-white hover:bg-neutral-100 text-[#DE001A] font-black text-sm sm:text-base rounded-xl transition-all shadow-xl hover:shadow-2xl hover:-translate-y-0.5 flex items-center gap-2 cursor-pointer"
-                >
-                  <span>{slide.ctaText}</span>
-                  <ArrowRight className="w-4 h-4 text-[#DE001A]" />
-                </button>
-
-                <button
-                  onClick={() => onNavigateTo('resolve-calculator')}
-                  className="px-5 py-3.5 bg-black/25 hover:bg-black/40 text-white font-bold text-sm rounded-xl border border-white/30 backdrop-blur-xs transition-all cursor-pointer"
-                >
-                  Worten Resolve
-                </button>
-
-                <span className="text-xs text-red-100 font-semibold hidden sm:inline">
-                  ⚡ Stock limitado a preços promocionais
-                </span>
-              </div>
+        {isCoffeeSlide ? (
+          /* ============================================================
+             1. WORTEN COFFEE CAMPAIGN BANNER (Exactly matching Image 1)
+             ============================================================ */
+          <div className="relative max-w-7xl mx-auto px-4 py-8 md:py-10 w-full z-10">
+            {/* Coffee beans decorative doodle SVG backgrounds */}
+            <div className="absolute left-2 top-4 opacity-25 pointer-events-none hidden md:block">
+              <svg width="70" height="70" viewBox="0 0 100 100" fill="none" stroke="#6F4E37" strokeWidth="3">
+                <ellipse cx="50" cy="50" rx="35" ry="22" transform="rotate(-30 50 50)" />
+                <path d="M28 35 Q50 50 72 65" />
+              </svg>
+            </div>
+            <div className="absolute left-4 bottom-4 opacity-20 pointer-events-none hidden md:block">
+              <svg width="90" height="90" viewBox="0 0 120 120" fill="none" stroke="#4A3525" strokeWidth="2.5">
+                <path d="M10 110 Q50 80 70 30" />
+                <ellipse cx="65" cy="40" rx="14" ry="7" transform="rotate(-40 65 40)" />
+                <ellipse cx="45" cy="70" rx="12" ry="6" transform="rotate(30 45 70)" />
+              </svg>
             </div>
 
-            {/* Right Product Photograph Showcase Card */}
-            <div className="lg:col-span-5 flex justify-center">
-              <div className="w-full max-w-md rounded-2xl bg-white text-neutral-900 border-2 border-white/80 shadow-2xl overflow-hidden group">
-                {/* Product Image Container */}
-                <div className="relative h-56 sm:h-64 bg-neutral-100 overflow-hidden">
-                  {slide.imageUrl ? (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-8 items-center">
+              {/* Left Column: Coffee Machines Showcase Composition */}
+              <div className="lg:col-span-6 flex items-center justify-center relative order-2 lg:order-1">
+                {/* Subtle soft backdrop shape behind machines */}
+                <div className="absolute -inset-2 sm:inset-0 bg-[#D9C4AC]/60 rounded-3xl -z-0 pointer-events-none" />
+
+                <div className="relative z-10 flex items-end justify-center gap-2 sm:gap-4 p-2 sm:p-4">
+                  {/* Machine 1: Delta Q compact with espresso glass */}
+                  <div className="w-24 sm:w-32 md:w-36 flex flex-col items-center shrink-0">
                     <img
-                      src={slide.imageUrl}
-                      alt={slide.headline}
-                      className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
+                      src="https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=400&q=80"
+                      alt="Delta Q Máquina de Café de Cápsulas"
+                      className="w-full h-36 sm:h-48 md:h-56 object-contain filter drop-shadow-xl hover:scale-105 transition-transform"
                     />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-neutral-200 text-neutral-400">
-                      Worten Destaque
-                    </div>
-                  )}
-                  {/* Badge floating over photo */}
-                  <div className="absolute top-3 left-3 bg-[#DE001A] text-white px-3 py-1.5 rounded-lg font-black text-sm shadow-md uppercase tracking-wide">
-                    {slide.highlightStat}
+                    <span className="text-[10px] font-black text-neutral-700 uppercase mt-1">Delta Q</span>
                   </div>
-                  <div className="absolute bottom-3 right-3 bg-neutral-900/80 backdrop-blur-xs text-white text-[11px] font-bold px-2.5 py-1 rounded-md">
-                    {slide.tag}
+
+                  {/* Machine 2: DeLonghi Magnifica bean-to-cup */}
+                  <div className="w-28 sm:w-40 md:w-44 flex flex-col items-center shrink-0 -translate-y-2">
+                    <img
+                      src="https://images.unsplash.com/photo-1517668808822-9ebb02f2a0e6?auto=format&fit=crop&w=500&q=80"
+                      alt="DeLonghi Magnifica EVO Máquina Automática"
+                      className="w-full h-44 sm:h-56 md:h-64 object-contain filter drop-shadow-2xl hover:scale-105 transition-transform"
+                    />
+                    <span className="text-[10px] font-black text-neutral-800 uppercase mt-1">DeLonghi Magnifica</span>
+                  </div>
+
+                  {/* Machine 3: Sage Barista Express in stainless steel */}
+                  <div className="w-32 sm:w-44 md:w-48 flex flex-col items-center shrink-0">
+                    <img
+                      src="https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=500&q=80"
+                      alt="Sage Barista Máquina de Café Manual"
+                      className="w-full h-40 sm:h-52 md:h-60 object-contain filter drop-shadow-xl hover:scale-105 transition-transform"
+                    />
+                    <span className="text-[10px] font-black text-neutral-700 uppercase mt-1">Sage Barista</span>
                   </div>
                 </div>
+              </div>
 
-                {/* Card Summary footer */}
-                <div className="p-4 bg-white space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-black text-neutral-900 uppercase tracking-wide">
-                      {slide.highlightLabel}
+              {/* Right Column: Exact Copy & Call to Action */}
+              <div className="lg:col-span-6 space-y-4 md:space-y-5 text-left order-1 lg:order-2 pl-0 lg:pl-4">
+                {/* Subtitle tag */}
+                <div className="text-xs sm:text-sm font-extrabold text-neutral-800 tracking-wider uppercase">
+                  {slide.bannerSubtitle || 'PROMOÇÃO NOS PRODUTOS ASSINALADOS 9 A 29 SET'}
+                </div>
+
+                {/* Main bold headline */}
+                <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-neutral-900 tracking-tight leading-tight">
+                  {slide.headline}
+                </h1>
+
+                {/* Primary Button */}
+                <div className="pt-2">
+                  <button
+                    id="hero-coffee-cta-btn"
+                    onClick={() => {
+                      onSelectDeal('Máquinas de Café');
+                      onNavigateTo('promocoes');
+                    }}
+                    className="px-8 py-3 bg-[#191919] hover:bg-black active:bg-neutral-800 text-white font-black text-xs sm:text-sm rounded-full transition-all shadow-md hover:shadow-lg uppercase tracking-wider cursor-pointer"
+                  >
+                    {slide.ctaText || 'VER PRODUTOS'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* ============================================================
+             2. WORTEN RED PROMOTIONAL BANNER
+             ============================================================ */
+          <div className="relative max-w-7xl mx-auto px-4 py-8 md:py-12 w-full z-10">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+              {/* Left Content */}
+              <div className="lg:col-span-7 space-y-4 sm:space-y-6">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                  <span className="px-3 py-1 bg-white text-[#DE001A] text-xs font-black uppercase tracking-wider rounded-md shadow-sm flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-[#DE001A]" />
+                    {slide.badge}
+                  </span>
+                  <span className="px-3 py-1 bg-black/30 text-white text-xs font-bold rounded-md border border-white/20">
+                    {slide.category}
+                  </span>
+                  <span className="px-3 py-1 bg-amber-400 text-neutral-950 text-xs font-black rounded-md flex items-center gap-1.5 shadow-xs">
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>
+                      Termina em: {String(countdown.days).padStart(2, '0')}d {String(countdown.hours).padStart(2, '0')}h {String(countdown.minutes).padStart(2, '0')}m {String(countdown.seconds).padStart(2, '0')}s
                     </span>
-                    <span className="text-xs text-emerald-600 font-bold flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded-full">
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      Garantia 3 Anos
-                    </span>
+                  </span>
+                </div>
+
+                <h1 className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tight text-white leading-tight">
+                  {slide.headline}
+                </h1>
+
+                <p className="text-base sm:text-lg text-red-50 max-w-2xl leading-relaxed font-normal">
+                  {slide.subheadline}
+                </p>
+
+                {slide.legalText && (
+                  <p className="text-xs text-red-200 max-w-xl italic flex items-center gap-1.5">
+                    <Info className="w-3.5 h-3.5 text-red-200 shrink-0" />
+                    <span>{slide.legalText}</span>
+                  </p>
+                )}
+
+                <div className="flex flex-wrap items-center gap-3.5 pt-1">
+                  <button
+                    id={`hero-slide-cta-${slide.id}`}
+                    onClick={() => {
+                      onSelectDeal(slide.headline);
+                      onNavigateTo('promocoes');
+                    }}
+                    className="px-7 py-3 bg-[#191919] hover:bg-black text-white font-black text-xs sm:text-sm rounded-full transition-all shadow-xl hover:shadow-2xl uppercase tracking-wider cursor-pointer"
+                  >
+                    <span>{slide.ctaText}</span>
+                  </button>
+
+                  <button
+                    onClick={() => onNavigateTo('resolve-calculator')}
+                    className="px-5 py-3 bg-white/15 hover:bg-white/25 text-white font-bold text-xs sm:text-sm rounded-full border border-white/30 backdrop-blur-xs transition-all cursor-pointer"
+                  >
+                    Worten Resolve
+                  </button>
+                </div>
+              </div>
+
+              {/* Right Product Photograph Showcase Card */}
+              <div className="lg:col-span-5 flex justify-center">
+                <div className="w-full max-w-md rounded-2xl bg-white text-neutral-900 border-2 border-white/80 shadow-2xl overflow-hidden group">
+                  <div className="relative h-56 sm:h-64 bg-neutral-100 overflow-hidden">
+                    {slide.imageUrl ? (
+                      <img
+                        src={slide.imageUrl}
+                        alt={slide.headline}
+                        className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-neutral-200 text-neutral-400">
+                        Worten Destaque
+                      </div>
+                    )}
+                    <div className="absolute top-3 left-3 bg-[#DE001A] text-white px-3 py-1.5 rounded-lg font-black text-sm shadow-md uppercase tracking-wide">
+                      {slide.highlightStat}
+                    </div>
+                    <div className="absolute bottom-3 right-3 bg-neutral-900/80 backdrop-blur-xs text-white text-[11px] font-bold px-2.5 py-1 rounded-md">
+                      {slide.tag}
+                    </div>
                   </div>
-                  <div className="pt-2 border-t border-neutral-100 flex items-center justify-between text-xs text-neutral-600">
-                    <span>Acumula Cartão Continente:</span>
-                    <strong className="text-[#DE001A] font-extrabold">Até 15%</strong>
+
+                  <div className="p-4 bg-white space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-neutral-900 uppercase tracking-wide">
+                        {slide.highlightLabel}
+                      </span>
+                      <span className="text-xs text-emerald-600 font-bold flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded-full">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Garantia 3 Anos
+                      </span>
+                    </div>
+                    <div className="pt-2 border-t border-neutral-100 flex items-center justify-between text-xs text-neutral-600">
+                      <span>Acumula Cartão Continente:</span>
+                      <strong className="text-[#DE001A] font-extrabold">Até 15%</strong>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
+        )}
+
+        {/* Carousel Slide Dots Indicator (with Elongated Red Bar matching Image 1) */}
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5">
+          {HERO_SLIDES.map((s, idx) => {
+            const isActive = currentSlide === idx;
+            return (
+              <button
+                key={s.id}
+                onClick={() => setCurrentSlide(idx)}
+                aria-label={`Ir para slide ${idx + 1}`}
+                className={`transition-all duration-300 cursor-pointer ${
+                  isActive
+                    ? 'w-7 h-1.5 bg-[#DE001A] rounded-full'
+                    : 'w-1.5 h-1.5 bg-neutral-400/60 hover:bg-neutral-600 rounded-full'
+                }`}
+              />
+            );
+          })}
         </div>
 
-        {/* Carousel Navigation Arrows */}
-        <button
-          onClick={prevSlide}
-          aria-label="Slide anterior"
-          className="absolute left-3 top-1/2 -translate-y-1/2 p-2.5 rounded-full bg-white/90 hover:bg-white text-[#DE001A] shadow-md transition-colors z-20 cursor-pointer hidden sm:flex items-center justify-center"
-        >
-          <ChevronLeft className="w-5 h-5" />
-        </button>
-
+        {/* Carousel Navigation Arrow on the Right Edge (matching Image 1) */}
         <button
           onClick={nextSlide}
           aria-label="Slide seguinte"
-          className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 rounded-full bg-white/90 hover:bg-white text-[#DE001A] shadow-md transition-colors z-20 cursor-pointer hidden sm:flex items-center justify-center"
+          className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 rounded-full text-neutral-700 hover:text-black transition-colors z-20 cursor-pointer flex items-center justify-center"
         >
-          <ChevronRight className="w-5 h-5" />
+          <ChevronRight className="w-6 h-6 stroke-[2.5]" />
         </button>
-
-        {/* Carousel Indicators */}
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 z-20">
-          {HERO_SLIDES.map((s, idx) => (
-            <button
-              key={s.id}
-              onClick={() => setCurrentSlide(idx)}
-              aria-label={`Ir para slide ${idx + 1}: ${s.headline}`}
-              className={`h-2 rounded-full transition-all cursor-pointer ${
-                idx === currentSlide
-                  ? 'w-8 bg-white'
-                  : 'w-2 bg-white/40 hover:bg-white/70'
-              }`}
-            />
-          ))}
-        </div>
       </div>
 
       {/* 3. BARRA DE CONFIANÇA E REVERSÃO DE RISCO (Worten.pt Trust Bar) */}

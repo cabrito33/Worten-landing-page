@@ -3,6 +3,7 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type, FunctionDeclaration } from '@google/genai';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 dotenv.config();
@@ -11,7 +12,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
@@ -34,15 +35,24 @@ export interface StoredBooking {
 
 const bookingsStore: StoredBooking[] = [];
 
-// Gemini GenAI Client Initialization
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    },
-  },
-});
+// Gemini GenAI Client Initialization (safe against missing or undefined env vars)
+let ai: GoogleGenAI | null = null;
+try {
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (geminiKey && geminiKey !== 'MY_GEMINI_API_KEY' && geminiKey.trim() !== '') {
+    ai = new GoogleGenAI({
+      apiKey: geminiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+  }
+} catch (aiInitError) {
+  console.warn('[Gemini AI] Initialization warning (fallback chatbot will be active):', aiInitError);
+  ai = null;
+}
 
 // Function Declaration for create_booking (receives name, email, startTime, notes)
 const createBookingDeclaration: FunctionDeclaration = {
@@ -383,8 +393,8 @@ app.post('/api/chat', async (req, res) => {
       parts: [{ text: message }],
     });
 
-    // Check if API key is available
-    if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY') {
+    // Check if Gemini AI client is initialized
+    if (ai) {
       try {
         const response = await ai.models.generateContent({
           model: 'gemini-3.8-flash',
@@ -581,24 +591,57 @@ app.get('/api/bookings', (_req, res) => {
   });
 });
 
+// Health check endpoint for Cloud Run
+app.get('/health', (_req, res) => {
+  res.status(200).send('OK');
+});
+
 // Setup Vite Middlewares in development or static serve in production
 async function startServer() {
-  if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.resolve(__dirname, 'dist')));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
-    });
-  } else {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
+  try {
+    const distPath = path.resolve(__dirname, 'dist');
+    const hasDist = fs.existsSync(distPath);
+
+    if (process.env.NODE_ENV === 'production' || hasDist) {
+      app.use(express.static(distPath));
+      app.get('*', (_req, res) => {
+        const indexPath = path.resolve(distPath, 'index.html');
+        if (fs.existsSync(indexPath)) {
+          res.sendFile(indexPath);
+        } else {
+          res.send('App is running. Frontend build in progress.');
+        }
+      });
+    } else {
+      try {
+        const vite = await createViteServer({
+          server: { middlewareMode: true },
+          appType: 'spa',
+        });
+        app.use(vite.middlewares);
+      } catch (viteError) {
+        console.warn('Vite dev server failed to start, falling back to static files:', viteError);
+        if (hasDist) {
+          app.use(express.static(distPath));
+          app.get('*', (_req, res) => {
+            res.sendFile(path.resolve(distPath, 'index.html'));
+          });
+        }
+      }
+    }
+  } catch (setupError) {
+    console.warn('Warning during server middleware setup:', setupError);
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Worten Portugal Assistant Server running on http://0.0.0.0:${PORT}`);
-  });
+  try {
+    app.listen(Number(PORT), '0.0.0.0', () => {
+      console.log('Server listening on 0.0.0.0:' + PORT);
+    });
+  } catch (listenError) {
+    console.error('Fatal error during app.listen:', listenError);
+  }
 }
 
-startServer();
+startServer().catch((fatalErr) => {
+  console.error('Unhandled fatal error in startServer:', fatalErr);
+});

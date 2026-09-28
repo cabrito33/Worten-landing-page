@@ -4,6 +4,7 @@ export interface HeroSlide {
   badgeType: 'promo' | 'financing' | 'outlet' | 'gaming' | 'tradein';
   headline: string;
   subheadline: string;
+  bannerSubtitle?: string;
   legalText?: string;
   ctaText: string;
   category: string;
@@ -13,6 +14,7 @@ export interface HeroSlide {
   accentColor: string;
   bgGradient: string;
   imageUrl?: string;
+  bannerTheme?: 'coffee' | 'red' | 'dark';
 }
 
 export interface Persona {
