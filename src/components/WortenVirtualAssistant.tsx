@@ -101,14 +101,20 @@ export const WortenVirtualAssistant: React.FC<WortenVirtualAssistantProps> = ({
   const [copiedPayloadId, setCopiedPayloadId] = useState<string | null>(null);
   const [webhookSimulated, setWebhookSimulated] = useState<boolean>(false);
 
-  // Active scheduling form state inside chat
-  const [schedulingData, setSchedulingData] = useState<SchedulingFormData>({
-    fullName: '',
-    email: '',
-    phone: '',
-    serviceType: SERVICE_OPTIONS[0],
-    date: '2026-09-28',
-    time: '10:00',
+  // Active scheduling form state inside chat (defaults to tomorrow / next business day)
+  const [schedulingData, setSchedulingData] = useState<SchedulingFormData>(() => {
+    const nextDay = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    if (nextDay.getDay() === 6) nextDay.setDate(nextDay.getDate() + 2);
+    if (nextDay.getDay() === 0) nextDay.setDate(nextDay.getDate() + 1);
+    const dateStr = nextDay.toISOString().slice(0, 10);
+    return {
+      fullName: '',
+      email: '',
+      phone: '',
+      serviceType: SERVICE_OPTIONS[0],
+      date: dateStr,
+      time: '10:00',
+    };
   });
   const [isSchedulingMode, setIsSchedulingMode] = useState<boolean>(false);
 
@@ -118,7 +124,7 @@ export const WortenVirtualAssistant: React.FC<WortenVirtualAssistantProps> = ({
     {
       id: 'welcome-1',
       sender: 'assistant',
-      text: 'Olá! Sou o teu assistente virtual oficial da **Worten Portugal (Worten Resolve)**.\n\nTrato-te sempre por "tu" e estou aqui para te ajudar de forma rápida e descomplicada. Podes colocar-me dúvidas sobre:\n• **Entregas grátis** (>35€ em pequenos formatos e levantamento gratuito em loja);\n• **Devoluções em 14 dias** em qualquer loja Worten;\n• **Reparações e assistência técnica Worten Resolve** (ecrãs, baterias, computadores e eletrodomésticos);\n• **Agendamento de reuniões ou visitas técnicas** (dias úteis, entre as 09:00 e as 19:00).\n\nComo te posso ajudar hoje?',
+      text: 'Olá! Sou o teu assistente virtual oficial da **Worten Portugal (Worten Resolve)**.\n\nTrato-te sempre por "tu" e estou aqui para te ajudar de forma rápida e descomplicada. Podes colocar-me dúvidas sobre:\n• **Entregas grátis** (>35€ em pequenos formatos e levantamento gratuito em loja);\n• **Devoluções em 14 dias** em qualquer loja Worten;\n• **Reparações e assistência técnica Worten Resolve** (ecrãs, baterias, computadores e eletrodomésticos);\n• **Agendamento de reuniões ou visitas técnicas** (sempre no futuro com mínimo de 2 horas ou no dia útil seguinte, dias úteis 09:00 às 19:00).\n\nComo te posso ajudar hoje?',
       timestamp: 'Agora',
       suggestedActions: [
         {
@@ -864,7 +870,7 @@ export const WortenVirtualAssistant: React.FC<WortenVirtualAssistantProps> = ({
                             <input
                               type="date"
                               required
-                              min="2026-09-23"
+                              min={new Date().toISOString().slice(0, 10)}
                               value={schedulingData.date}
                               onChange={(e) =>
                                 setSchedulingData({ ...schedulingData, date: e.target.value })

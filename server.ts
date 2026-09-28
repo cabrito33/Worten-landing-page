@@ -1,6 +1,6 @@
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
-import { GoogleGenAI, Type, FunctionDeclaration } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
@@ -15,6 +15,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+
+// Immediate healthcheck for Google Cloud Run probes
+app.get('/healthz', (_req, res) => res.status(200).send('OK'));
+app.get('/health', (_req, res) => res.status(200).send('OK'));
 
 // Cal.com API Key configuration
 const CAL_API_KEY = process.env.CAL_API_KEY || 'cal_live_cd3ae2c637bf2c13ca8c9d2f28b3ff0f';
@@ -55,10 +59,10 @@ try {
 }
 
 // Function Declaration for create_booking (receives name, email, startTime, notes)
-const createBookingDeclaration: FunctionDeclaration = {
+const createBookingDeclaration = {
   name: 'create_booking',
   description:
-    'Regista e agenda uma reunião ou visita técnica da equipa Worten Resolve enviando o agendamento diretamente para a API do Cal.com (v2). OBRIGATÓRIO acionar esta ferramenta assim que tiveres todos os dados necessários (name, email, startTime e notes). NUNCA inventes confirmação de texto sem acionar esta função.',
+    'Regista e agenda uma reunião ou visita técnica da equipa Worten Resolve enviando o agendamento diretamente para a API do Cal.com (v2). OBRIGATÓRIO acionar esta ferramenta assim que tiveres todos os dados necessários (name, email, startTime e notes). A data e hora (startTime) DEVE ser estritamente no FUTURO com um mínimo de 2 horas a contar da hora atual do sistema, ou no dia útil seguinte, em dias úteis (2ª a 6ª feira) entre as 09:00 e as 19:00 (fuso horário Europe/Lisbon). NUNCA inventes confirmação de texto sem acionar esta função.',
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -73,7 +77,7 @@ const createBookingDeclaration: FunctionDeclaration = {
       startTime: {
         type: Type.STRING,
         description:
-          'Data e hora de início no formato ISO 8601 (ex: "2026-09-28T10:00:00Z" ou "2026-09-28T10:00:00") para um dia útil (2ª a 6ª feira) entre as 09:00 e as 19:00 (fuso horário Europe/Lisbon).',
+          'Data e hora de início no formato ISO 8601 (ex: "2026-09-29T10:00:00Z"). OBRIGATÓRIO ser uma data e hora no FUTURO com pelo menos 2 horas a contar da hora atual do sistema, ou no dia útil seguinte, em dias úteis (2ª a 6ª feira) entre as 09:00 e as 19:00 (fuso horário Europe/Lisbon). NUNCA fornecer uma data/hora no passado para evitar o erro "Attempting to book a meeting in the past" da API do Cal.com.',
       },
       notes: {
         type: Type.STRING,
@@ -85,17 +89,109 @@ const createBookingDeclaration: FunctionDeclaration = {
   },
 };
 
-const WORTEN_SYSTEM_INSTRUCTION = `És o assistente virtual oficial da Worten Portugal (Worten Resolve).
+/**
+ * Returns a guaranteed valid ISO 8601 future slot (minimum 2 hours ahead of now),
+ * falling on a weekday (Monday-Friday) between 09:00 and 19:00 (Europe/Lisbon).
+ */
+export function ensureFutureSlot(requestedStartTime?: string): string {
+  const now = new Date();
+  // Buffer: at least 2 hours from current system time
+  const minAllowedTime = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+
+  let targetDate = new Date(minAllowedTime.getTime());
+
+  if (requestedStartTime) {
+    try {
+      const parsed = new Date(requestedStartTime);
+      if (!isNaN(parsed.getTime())) {
+        if (parsed.getTime() >= minAllowedTime.getTime()) {
+          targetDate = parsed;
+        }
+      }
+    } catch {
+      // keep targetDate as minAllowedTime
+    }
+  }
+
+  // Adjust for business days: Monday (1) to Friday (5)
+  // Sunday is 0, Saturday is 6
+  const currentDay = targetDate.getUTCDay();
+  if (currentDay === 6) {
+    // Saturday -> jump to Monday (+2 days)
+    targetDate.setUTCDate(targetDate.getUTCDate() + 2);
+    targetDate.setUTCHours(10, 0, 0, 0);
+  } else if (currentDay === 0) {
+    // Sunday -> jump to Monday (+1 day)
+    targetDate.setUTCDate(targetDate.getUTCDate() + 1);
+    targetDate.setUTCHours(10, 0, 0, 0);
+  }
+
+  // Business hours: 09:00 to 19:00 Lisbon time
+  const currentHours = targetDate.getUTCHours();
+  if (currentHours < 9) {
+    targetDate.setUTCHours(10, 0, 0, 0);
+  } else if (currentHours >= 18) {
+    // Past 18:00 UTC / 19:00 Lisbon -> schedule for next business day at 10:00
+    targetDate.setUTCDate(targetDate.getUTCDate() + 1);
+    targetDate.setUTCHours(10, 0, 0, 0);
+    if (targetDate.getUTCDay() === 6) {
+      targetDate.setUTCDate(targetDate.getUTCDate() + 2);
+    } else if (targetDate.getUTCDay() === 0) {
+      targetDate.setUTCDate(targetDate.getUTCDate() + 1);
+    }
+  }
+
+  // Final check: must be strictly in the future (minimum 2 hours)
+  if (targetDate.getTime() < minAllowedTime.getTime()) {
+    targetDate = new Date(minAllowedTime.getTime() + 30 * 60 * 1000);
+  }
+
+  return targetDate.toISOString();
+}
+
+function getLisbonCurrentTimeString(): string {
+  try {
+    return new Intl.DateTimeFormat('pt-PT', {
+      timeZone: 'Europe/Lisbon',
+      dateStyle: 'full',
+      timeStyle: 'medium',
+    }).format(new Date());
+  } catch {
+    return new Date().toISOString();
+  }
+}
+
+export function buildWortenSystemInstruction(): string {
+  const lisbonNow = getLisbonCurrentTimeString();
+  const minFutureDate = new Date(Date.now() + 2 * 60 * 60 * 1000);
+  const minFutureISO = minFutureDate.toISOString();
+  const recommendedSlotISO = ensureFutureSlot();
+
+  return `És o assistente virtual oficial da Worten Portugal (Worten Resolve).
 Tratas o cliente sempre por "tu" de forma ágil, empática e amigável.
 Respondes com clareza e precisão a dúvidas comuns:
 - Entregas grátis em compras superiores a 35€ em pequenos formatos expedidos pela Worten (Click & Collect sempre grátis em qualquer loja física).
 - Devoluções em 14 dias em loja física ou com recolha ao domicílio (artigos na embalagem original, com todos os acessórios e respetiva fatura).
 - Reparações e assistência técnica Worten Resolve (substituição de ecrãs e baterias na hora para smartphones, reparação ao domicílio de grandes eletrodomésticos, manutenção, limpeza e upgrade de computadores).
 
+HORÁRIO E DATA ATUAL DO SISTEMA:
+- Momento atual em Portugal (Europe/Lisbon): ${lisbonNow}
+- Próximo horário útil elegível para agendamento: ${recommendedSlotISO}
+
+REGRA CRÍTICA DE AGENDAMENTO NO FUTURO (EVITAR ERRO "Attempting to book a meeting in the past"):
+1. QUALQUER AGENDAMENTO DEVE SER SEMPRE FEITO PARA UMA DATA E HORA NO FUTURO (nunca no passado ou na hora atual).
+2. O horário de início ('startTime') DEVE ter OBRIGATORIAMENTE um MÍNIMO DE 2 HORAS a contar da hora atual do sistema (nunca antes de ${minFutureISO}), ou ser agendado para o DIA ÚTIL SEGUINTE caso já estejamos no fim da tarde ou fora de horas.
+3. Os agendamentos ocorrem exclusivamente em DIAS ÚTEIS (segunda a sexta-feira) entre as 09:00 e as 19:00 (fuso horário Europe/Lisbon).
+4. Se o utilizador sugerir uma data/hora no passado, no próprio momento ou com menos de 2 horas de antecedência, ou num fim de semana / fora do horário útil, DEVES esclarecer amigavelmente e sugerir proativamente a data e hora no FUTURO válida mais próxima (ex: daqui a 2 horas ou às 10:00 do dia útil seguinte como "${recommendedSlotISO}").
+5. NUNCA aciones a ferramenta 'create_booking' com datas passadas ou com menos de 2 horas de antecedência. Isso evita categoricamente que a API do Cal.com devolva o erro "Attempting to book a meeting in the past".
+
 QUANDO O UTILIZADOR QUISER AGENDAR UMA REUNIÃO OU VISITA TÉCNICA:
 1. Pede o nome completo ('name'), o email de contacto ('email') e as notas ou motivo do serviço ('notes').
-2. Pede a data e hora pretendida ('startTime', convertida para formato ISO 8601 ex: 2026-09-28T10:00:00Z em dias úteis entre as 09:00 e as 19:00). Se o cliente sugerir um horário fora desse intervalo, esclarece amigavelmente o horário de funcionamento e sugere uma alternativa.
+2. Pede a data e hora pretendida ('startTime', convertida para formato ISO 8601 ex: "${recommendedSlotISO}"), garantindo que cumpre a regra do FUTURO (mínimo 2 horas a contar da hora atual ou no dia útil seguinte, dias úteis 09:00 às 19:00).
 3. Assim que tiveres todos os dados (name, email, startTime, notes), NÃO inventes uma confirmação de texto. Deves OBRIGATORIAMENTE acionar a ferramenta 'create_booking'.`;
+}
+
+const WORTEN_SYSTEM_INSTRUCTION = buildWortenSystemInstruction();
 
 // Cal.com v2 API Integration Helper
 export interface CalBookingParams {
@@ -114,16 +210,7 @@ export interface CalBookingResult {
 
 async function sendBookingToCalCom(params: CalBookingParams): Promise<CalBookingResult> {
   try {
-    let isoStartTime: string;
-    try {
-      const parsedDate = new Date(params.startTime);
-      if (isNaN(parsedDate.getTime())) {
-        throw new Error('Data inválida');
-      }
-      isoStartTime = parsedDate.toISOString();
-    } catch {
-      isoStartTime = '2026-09-28T10:00:00.000Z';
-    }
+    const isoStartTime = ensureFutureSlot(params.startTime);
 
     const payload = {
       start: isoStartTime,
@@ -139,6 +226,8 @@ async function sendBookingToCalCom(params: CalBookingParams): Promise<CalBooking
       },
     };
 
+    const apiKey = process.env.CAL_API_KEY || CAL_API_KEY;
+
     console.log('[Cal.com v2] Enviando agendamento para https://api.cal.com/v2/bookings...', {
       start: payload.start,
       name: params.name,
@@ -148,7 +237,7 @@ async function sendBookingToCalCom(params: CalBookingParams): Promise<CalBooking
     const response = await fetch('https://api.cal.com/v2/bookings', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${CAL_API_KEY}`,
+        Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
         'cal-api-version': '2024-08-13',
       },
@@ -194,28 +283,17 @@ function generateCalendarEventPayload(data: {
   startTime: string;
   phone?: string;
 }) {
-  let startDate = '2026-09-28';
-  let startTimeFormatted = '10:00';
-  let endFormatted = '11:00';
-  let startISO = `${startDate}T10:00:00+01:00`;
-  let endISO = `${startDate}T11:00:00+01:00`;
-
-  try {
-    const parsed = new Date(data.startTime);
-    if (!isNaN(parsed.getTime())) {
-      startDate = parsed.toISOString().slice(0, 10);
-      const hours = parsed.getHours();
-      const minutes = parsed.getMinutes();
-      const pad = (n: number) => n.toString().padStart(2, '0');
-      startTimeFormatted = `${pad(hours)}:${pad(minutes)}`;
-      endFormatted = `${pad(hours + 1)}:${pad(minutes)}`;
-      startISO = parsed.toISOString();
-      const endD = new Date(parsed.getTime() + 30 * 60000);
-      endISO = endD.toISOString();
-    }
-  } catch {
-    // fallback defaults
-  }
+  const safeFutureISO = ensureFutureSlot(data.startTime);
+  const parsed = new Date(safeFutureISO);
+  const startDate = parsed.toISOString().slice(0, 10);
+  const hours = parsed.getHours();
+  const minutes = parsed.getMinutes();
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const startTimeFormatted = `${pad(hours)}:${pad(minutes)}`;
+  const endFormatted = `${pad(hours + 1)}:${pad(minutes)}`;
+  const startISO = parsed.toISOString();
+  const endD = new Date(parsed.getTime() + 30 * 60000);
+  const endISO = endD.toISOString();
 
   return {
     action: 'create_calendar_event',
@@ -282,18 +360,34 @@ async function handleFallbackBot(userMessage: string, history: Array<{ role: str
 
   // Check if user provided scheduling info
   const emailMatch = userMessage.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-  const dateMatch = userMessage.match(/\b(202[6-9]-[0-1][0-9]-[0-3][0-9]|\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})\b/);
+  const isoMatch = userMessage.match(/202[6-9]-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9](?::[0-5][0-9])?(?:Z|[+-][0-9]{2}:?[0-9]{2})?/i);
+  const dateMatch = userMessage.match(/202[6-9]-[0-1][0-9]-[0-3][0-9]|\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}/);
   const timeMatch = userMessage.match(/\b([01]?[0-9]|2[0-3]):[0-5][0-9]\b/);
 
   // If user triggered scheduling
   if (q.includes('agend') || q.includes('marcar') || q.includes('visita') || q.includes('reuni') || emailMatch) {
-    if (emailMatch && (dateMatch || q.includes('2026') || timeMatch)) {
+    if (emailMatch && (isoMatch || dateMatch || q.includes('2026') || timeMatch || q.includes('amanh') || q.includes('hoje'))) {
       const email = emailMatch[0];
-      const date = dateMatch ? dateMatch[0].replace(/\//g, '-') : '2026-09-28';
-      const time = timeMatch ? timeMatch[0] : '10:00';
-      const name = userMessage.split(/[,;\n]/)[0].replace(/(agendar|para|sou o|chamo-me|nome:?)/gi, '').trim() || 'Afonso Pedro';
-      const notes = 'Reparação / Assistência Técnica Worten Resolve';
-      const startTime = `${date}T${time}:00Z`;
+      
+      let rawStartTime = '';
+      if (isoMatch) {
+        rawStartTime = isoMatch[0].includes('Z') || isoMatch[0].includes('+') ? isoMatch[0] : `${isoMatch[0]}Z`;
+      } else if (dateMatch) {
+        const rawDate = dateMatch[0].replace(/\//g, '-');
+        const rawTime = timeMatch ? timeMatch[0] : '10:00';
+        rawStartTime = `${rawDate}T${rawTime}:00Z`;
+      } else if (timeMatch) {
+        rawStartTime = `${new Date().toISOString().slice(0, 10)}T${timeMatch[0]}:00Z`;
+      }
+      const startTime = ensureFutureSlot(rawStartTime);
+
+      // Name extraction
+      const nameMatch = userMessage.match(/(?:nome(?:\s+é|:)?|sou o|chamo-me)\s+([A-ZÀ-Úa-zà-ú\s]{2,30})/i);
+      const name = nameMatch ? nameMatch[1].trim() : 'Afonso Pedro';
+
+      // Notes extraction
+      const notesMatch = userMessage.match(/(?:motivo|serviço|notas?|avaria|problema|para)\s+([^,.;\n]+)/i);
+      const notes = notesMatch ? notesMatch[1].trim() : 'Reparação / Assistência Técnica Worten Resolve';
 
       const calResult = await sendBookingToCalCom({
         name,
@@ -331,10 +425,11 @@ async function handleFallbackBot(userMessage: string, history: Array<{ role: str
           `• **Nome:** ${name}\n` +
           `• **Email:** ${email}\n` +
           `• **Notas do Serviço:** ${notes}\n` +
-          `• **Início (startTime):** ${startTime} (horário útil 09:00 - 19:00)` +
+          `• **Início (startTime no futuro):** ${startTime} (horário útil 09:00 - 19:00)` +
           calSuccessText +
           `\n\nPodes também sincronizar com o teu Google Calendar ou descarregar o convite .ics abaixo.`,
         bookingCreated: true,
+        uid: (calResult.data as any)?.uid || null,
         calBooking: calResult.data,
         calSuccess: calResult.success,
         calError: calResult.error,
@@ -347,14 +442,14 @@ async function handleFallbackBot(userMessage: string, history: Array<{ role: str
       text: 'Com certeza! Para procedermos ao agendamento da tua reunião ou visita técnica com a equipa da **Worten Resolve**, preciso de recolher os seguintes dados:\n\n' +
         '1. **Nome completo** (`name`) e o teu **email de contacto** (`email`);\n' +
         '2. **Notas ou motivo detalhado do serviço** (`notes`);\n' +
-        '3. A **data e hora pretendida** (`startTime`), em dias úteis entre as 09:00 e as 19:00.\n\n' +
+        '3. A **data e hora pretendida** (`startTime`), obrigatoriamente no **FUTURO** (com antecedência mínima de 2 horas a contar da hora atual do sistema, ou no dia útil seguinte), em dias úteis entre as 09:00 e as 19:00.\n\n' +
         'Assim que me deres estas informações, a ferramenta `create_booking` enviará o agendamento diretamente para a API do Cal.com!',
       bookingCreated: false,
     };
   }
 
   return {
-    text: 'Olá! Sou o assistente virtual da **Worten Portugal (Worten Resolve)**. Posso ajudar-te com informações sobre entregas grátis (>35€), devoluções em 14 dias em loja ou reparações técnicas. Se precisares, posso também agendar uma visita técnica ou reunião entre as 09:00 e as 19:00 em dias úteis com envio direto para o Cal.com!',
+    text: 'Olá! Sou o assistente virtual da **Worten Portugal (Worten Resolve)**. Posso ajudar-te com informações sobre entregas grátis (>35€), devoluções em 14 dias em loja ou reparações técnicas. Se precisares, posso também agendar uma visita técnica ou reunião no futuro (com mínimo de 2 horas de antecedência ou no dia útil seguinte, dias úteis 09:00 às 19:00) com envio direto para o Cal.com!',
     bookingCreated: false,
   };
 }
@@ -400,7 +495,7 @@ app.post('/api/chat', async (req, res) => {
           model: 'gemini-3.8-flash',
           contents: formattedContents,
           config: {
-            systemInstruction: WORTEN_SYSTEM_INSTRUCTION,
+            systemInstruction: buildWortenSystemInstruction(),
             tools: [{ functionDeclarations: [createBookingDeclaration] }],
             temperature: 0.6,
           },
@@ -429,10 +524,11 @@ app.post('/api/chat', async (req, res) => {
           let startTime = args.startTime;
 
           if (!startTime) {
-            const date = args.bookingDate || '2026-09-28';
+            const date = args.bookingDate;
             const time = args.bookingTime || '10:00';
-            startTime = `${date}T${time}:00Z`;
+            startTime = date ? `${date}T${time}:00Z` : ensureFutureSlot();
           }
+          startTime = ensureFutureSlot(startTime);
 
           // Call Cal.com API v2
           const calResult = await sendBookingToCalCom({
@@ -484,6 +580,7 @@ app.post('/api/chat', async (req, res) => {
               calSuccessText +
               `\n\nPodes agora adicionar o evento ao Google Calendar ou descarregar o ficheiro .ics abaixo.`,
             bookingCreated: true,
+            uid: calInfo?.uid || null,
             calSuccess: calResult.success,
             calBooking: calResult.data,
             calError: calResult.error,
@@ -536,6 +633,8 @@ app.post('/api/bookings', async (req, res) => {
       });
     }
 
+    startTime = ensureFutureSlot(startTime);
+
     // Call Cal.com API v2
     const calResult = await sendBookingToCalCom({
       name,
@@ -566,11 +665,15 @@ app.post('/api/bookings', async (req, res) => {
     };
     bookingsStore.push(bookingRecord);
 
+    const calInfo = (calResult.data || {}) as any;
+    const bookingUid = calInfo?.uid || '';
+
     return res.status(201).json({
       success: true,
       message: calResult.success
-        ? 'Agendamento criado com sucesso no Cal.com (v2) via create_booking!'
+        ? `Agendamento criado com sucesso no Cal.com (v2) via create_booking! UID: ${bookingUid}`
         : 'Agendamento registado localmente (Cal.com retornou aviso).',
+      uid: bookingUid || null,
       calSuccess: calResult.success,
       calBooking: calResult.data,
       calError: calResult.error,
@@ -596,8 +699,17 @@ app.get('/health', (_req, res) => {
   res.status(200).send('OK');
 });
 
-// Setup Vite Middlewares in development or static serve in production
-async function startServer() {
+// Start listening immediately on host 0.0.0.0 and PORT without waiting for Vite or disk operations
+try {
+  app.listen(Number(PORT), '0.0.0.0', () => {
+    console.log(`Server running on http://0.0.0.0:${PORT}`);
+  });
+} catch (listenError) {
+  console.error('Fatal error during app.listen:', listenError);
+}
+
+// Setup Vite Middlewares in development or static serve in production (non-blocking)
+async function setupFrontendMiddleware() {
   try {
     const distPath = path.resolve(__dirname, 'dist');
     const hasDist = fs.existsSync(distPath);
@@ -632,16 +744,8 @@ async function startServer() {
   } catch (setupError) {
     console.warn('Warning during server middleware setup:', setupError);
   }
-
-  try {
-    app.listen(Number(PORT), '0.0.0.0', () => {
-      console.log('Server listening on 0.0.0.0:' + PORT);
-    });
-  } catch (listenError) {
-    console.error('Fatal error during app.listen:', listenError);
-  }
 }
 
-startServer().catch((fatalErr) => {
-  console.error('Unhandled fatal error in startServer:', fatalErr);
+setupFrontendMiddleware().catch((fatalErr) => {
+  console.warn('Non-fatal error setting up frontend middleware:', fatalErr);
 });
