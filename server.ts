@@ -205,7 +205,90 @@ export interface CalBookingResult {
   success: boolean;
   data?: Record<string, unknown>;
   error?: string;
+  errorReason?: string;
+  userAdvice?: string;
   statusCode?: number;
+}
+
+/**
+ * Translates Cal.com error codes/messages into user-friendly explanations and actionable advice in Portuguese.
+ */
+export function explainBookingError(errorMsg?: string, resJson?: any): { reason: string; userAdvice: string } {
+  const raw = `${errorMsg || ''} ${JSON.stringify(resJson || {})}`.toLowerCase();
+
+  // 1. Minimum notice / too soon
+  if (raw.includes('minimum booking notice') || raw.includes('too soon')) {
+    return {
+      reason: 'A hora indicada não cumpre a antecedência mínima necessária para este tipo de assistência técnica (aviso prévio obrigatório).',
+      userAdvice: 'Sugestão: Por favor escolhe um horário com maior antecedência (com pelo menos 2 a 4 horas de margem) ou agenda para o dia útil seguinte.',
+    };
+  }
+
+  // 2. Conflict: slot already booked or host not available
+  if (
+    raw.includes('conflict') ||
+    raw.includes('already has booking') ||
+    raw.includes('not available') ||
+    raw.includes('slot is unavailable') ||
+    raw.includes('busy') ||
+    raw.includes('overlapping')
+  ) {
+    return {
+      reason: 'O horário selecionado já se encontra ocupado por outra marcação na agenda do técnico.',
+      userAdvice: 'Sugestão: Escolhe outro horário (por exemplo, 30 minutos ou 1 hora mais tarde) ou noutro dia útil entre as 09:00 e as 19:00.',
+    };
+  }
+
+  // 3. Past date or buffer requirement
+  if (raw.includes('past') || raw.includes('attempting to book a meeting in the past')) {
+    return {
+      reason: 'A data e hora indicadas são no passado ou não cumprem o tempo mínimo de antecedência de 2 horas.',
+      userAdvice: 'Sugestão: Os agendamentos devem ser marcados com pelo menos 2 horas a contar da hora atual do sistema ou para o próximo dia útil.',
+    };
+  }
+
+  // 4. Outside scheduling window (too far)
+  if (raw.includes('scheduling window') || raw.includes('too far in the future')) {
+    return {
+      reason: 'A data escolhida ultrapassa a janela de agendamento autorizada (demasiado distante no futuro).',
+      userAdvice: 'Sugestão: Por favor escolhe uma data mais próxima nos próximos 14 a 30 dias úteis.',
+    };
+  }
+
+  // 5. Weekend or outside working hours
+  if (
+    raw.includes('outside working') ||
+    raw.includes('working_hours') ||
+    raw.includes('weekend') ||
+    raw.includes('fim de semana')
+  ) {
+    return {
+      reason: 'A data ou hora solicitada recai num fim de semana ou fora do horário de expediente da equipa Worten Resolve.',
+      userAdvice: 'Sugestão: As marcações presenciais e virtuais realizam-se em dias úteis (2ª a 6ª feira) entre as 09:00 e as 19:00.',
+    };
+  }
+
+  // 6. Invalid email or attendee format
+  if (raw.includes('email') || raw.includes('attendee') || raw.includes('invalid_string')) {
+    return {
+      reason: 'O endereço de email fornecido parece ser inválido ou incompleto.',
+      userAdvice: 'Sugestão: Por favor confirma o teu email de contacto (ex: utilizador@dominio.com) para receberes os detalhes da confirmação.',
+    };
+  }
+
+  // 7. Rate limit
+  if (raw.includes('rate_limit') || raw.includes('too many') || raw.includes('429')) {
+    return {
+      reason: 'O serviço de agendamentos atingiu momentaneamente o limite de pedidos simultâneos.',
+      userAdvice: 'Sugestão: Aguarda alguns segundos e tenta novamente ou contacta diretamente a loja.',
+    };
+  }
+
+  // 8. Fallback / generic API error
+  return {
+    reason: errorMsg && errorMsg.trim() ? `A API do Cal.com reportou: "${errorMsg}".` : 'Não foi possível confirmar a disponibilidade da vaga na agenda neste momento.',
+    userAdvice: 'Sugestão: Podes tentar um horário diferente em dias úteis (09:00 às 19:00) ou contactar a equipa Worten Resolve.',
+  };
 }
 
 async function sendBookingToCalCom(params: CalBookingParams): Promise<CalBookingResult> {
@@ -247,14 +330,23 @@ async function sendBookingToCalCom(params: CalBookingParams): Promise<CalBooking
     const resJson = (await response.json()) as any;
 
     if (!response.ok || resJson.status === 'error') {
-      const errorMsg =
+      const detailsMsg =
+        resJson?.error?.details?.message ||
+        (typeof resJson?.error?.details === 'string' ? resJson?.error?.details : undefined);
+      const rawErrorMsg =
+        detailsMsg ||
         resJson?.error?.message ||
         resJson?.message ||
         `Erro Cal.com (HTTP ${response.status})`;
-      console.warn('[Cal.com v2] Resposta com erro:', errorMsg, resJson);
+
+      const { reason, userAdvice } = explainBookingError(rawErrorMsg, resJson);
+
+      console.warn('[Cal.com v2] Resposta com erro:', rawErrorMsg, resJson);
       return {
         success: false,
-        error: errorMsg,
+        error: rawErrorMsg,
+        errorReason: reason,
+        userAdvice,
         statusCode: response.status,
         data: resJson,
       };
@@ -268,9 +360,12 @@ async function sendBookingToCalCom(params: CalBookingParams): Promise<CalBooking
     };
   } catch (err: any) {
     console.error('[Cal.com v2] Exceção ao comunicar com Cal.com:', err);
+    const { reason, userAdvice } = explainBookingError(err?.message);
     return {
       success: false,
       error: err?.message || 'Falha ao contactar a API do Cal.com',
+      errorReason: reason,
+      userAdvice,
     };
   }
 }
@@ -396,6 +491,25 @@ async function handleFallbackBot(userMessage: string, history: Array<{ role: str
         notes,
       });
 
+      if (!calResult.success) {
+        const explanation = calResult.errorReason || 'O horário selecionado não pôde ser agendado.';
+        const advice = calResult.userAdvice || 'Por favor escolhe um horário alternativo em dias úteis entre as 09:00 e as 19:00.';
+
+        return {
+          text: `⚠️ **Não foi possível concluir o agendamento para ${startTime}:**\n\n` +
+            `• **Motivo do erro:** ${explanation}\n` +
+            (calResult.error ? `• **Detalhe técnico (Cal.com):** \`${calResult.error}\`\n\n` : '\n') +
+            `💡 **Como resolver:** ${advice}\n\n` +
+            `Diz-me qual o outro horário ou dia útil (2ª a 6ª feira, das 09:00 às 19:00) de tua preferência que tento logo nova reserva!`,
+          bookingCreated: false,
+          calSuccess: false,
+          calError: calResult.error,
+          calErrorReason: explanation,
+          calUserAdvice: advice,
+          calBooking: calResult.data,
+        };
+      }
+
       const calendarPayload = generateCalendarEventPayload({
         name,
         email,
@@ -411,17 +525,19 @@ async function handleFallbackBot(userMessage: string, history: Array<{ role: str
         startTime,
         createdAt: new Date().toISOString(),
         calBooking: calResult.data,
-        calError: calResult.error,
+        calError: null,
         calendarPayload,
       };
       bookingsStore.push(bookingRecord);
 
-      const calSuccessText = calResult.success
-        ? `\n\n🎉 **Sincronizado na API do Cal.com (v2)!**\n• **ID da Reserva:** \`${(calResult.data as any)?.id || 'Confirmado'}\`\n• **UID:** \`${(calResult.data as any)?.uid || ''}\`\n• **Link da Reunião:** ${(calResult.data as any)?.meetingUrl || 'Acesso Cal.com Ativo'}`
-        : '';
+      const calSuccessText =
+        `\n\n🎉 **Confirmado com sucesso na API do Cal.com (v2)!**\n` +
+        `• **ID da Reserva:** \`${(calResult.data as any)?.id || 'Confirmado'}\`\n` +
+        `• **UID:** \`${(calResult.data as any)?.uid || ''}\`\n` +
+        `• **Link da Reunião:** ${(calResult.data as any)?.meetingUrl || 'Acesso Cal.com Ativo'}`;
 
       return {
-        text: `Excelente! Acabei de acionar a ferramenta **create_booking** para formalizar o teu agendamento na Worten Resolve.\n\n` +
+        text: `Excelente! O teu agendamento da **Worten Resolve** foi confirmado com sucesso na agenda:\n\n` +
           `• **Nome:** ${name}\n` +
           `• **Email:** ${email}\n` +
           `• **Notas do Serviço:** ${notes}\n` +
@@ -431,8 +547,7 @@ async function handleFallbackBot(userMessage: string, history: Array<{ role: str
         bookingCreated: true,
         uid: (calResult.data as any)?.uid || null,
         calBooking: calResult.data,
-        calSuccess: calResult.success,
-        calError: calResult.error,
+        calSuccess: true,
         bookingData: bookingRecord,
         calendarPayload,
       };
@@ -538,6 +653,25 @@ app.post('/api/chat', async (req, res) => {
             notes,
           });
 
+          if (!calResult.success) {
+            const explanation = calResult.errorReason || 'O horário selecionado não pôde ser agendado na plataforma Cal.com.';
+            const advice = calResult.userAdvice || 'Por favor indica outro horário em dias úteis entre as 09:00 e as 19:00.';
+
+            return res.json({
+              text: `⚠️ **Não foi possível concluir o agendamento para o horário solicitado (${startTime}):**\n\n` +
+                `• **Motivo do erro:** ${explanation}\n` +
+                (calResult.error ? `• **Detalhe técnico (Cal.com):** \`${calResult.error}\`\n\n` : '\n') +
+                `💡 **Como resolver:** ${advice}\n\n` +
+                `Indica-me qual a nova hora ou dia útil (2ª a 6ª feira, das 09:00 às 19:00) que preferes, e eu procedo de imediato à reserva!`,
+              bookingCreated: false,
+              calSuccess: false,
+              calError: calResult.error,
+              calErrorReason: explanation,
+              calUserAdvice: advice,
+              calBooking: calResult.data,
+            });
+          }
+
           const calendarPayload = generateCalendarEventPayload({
             name,
             email,
@@ -555,24 +689,21 @@ app.post('/api/chat', async (req, res) => {
             phone: args.phone,
             createdAt: new Date().toISOString(),
             calBooking: calResult.data,
-            calError: calResult.error,
+            calError: null,
             calendarPayload,
           };
           bookingsStore.push(bookingRecord);
 
           const calInfo = calResult.data as any;
-          const calSuccessText = calResult.success
-            ? `\n\n✅ **Enviado com sucesso para a API do Cal.com (v2)!**\n` +
-              `• **ID do Agendamento:** \`${calInfo?.id || '200'}\`\n` +
-              `• **UID da Reunião:** \`${calInfo?.uid || ''}\`\n` +
-              (calInfo?.meetingUrl ? `• **Link de Acesso:** [Entrar na Reunião](${calInfo.meetingUrl})\n` : '') +
-              `• **Fuso Horário:** Europe/Lisbon`
-            : calResult.error
-            ? `\n\n⚠️ **Nota Cal.com:** ${calResult.error}`
-            : '';
+          const calSuccessText =
+            `\n\n✅ **Enviado e confirmado na API do Cal.com (v2)!**\n` +
+            `• **ID do Agendamento:** \`${calInfo?.id || '200'}\`\n` +
+            `• **UID da Reunião:** \`${calInfo?.uid || ''}\`\n` +
+            (calInfo?.meetingUrl ? `• **Link de Acesso:** [Entrar na Reunião](${calInfo.meetingUrl})\n` : '') +
+            `• **Fuso Horário:** Europe/Lisbon`;
 
           return res.json({
-            text: `Perfeito! A ferramenta **create_booking** foi acionada com sucesso pela IA do Gemini para formalizar o teu agendamento da **Worten Resolve**:\n\n` +
+            text: `Perfeito! O teu agendamento da **Worten Resolve** foi confirmado com sucesso na agenda:\n\n` +
               `• **Nome:** ${name}\n` +
               `• **Email:** ${email}\n` +
               `• **Notas:** ${notes}\n` +
@@ -581,9 +712,8 @@ app.post('/api/chat', async (req, res) => {
               `\n\nPodes agora adicionar o evento ao Google Calendar ou descarregar o ficheiro .ics abaixo.`,
             bookingCreated: true,
             uid: calInfo?.uid || null,
-            calSuccess: calResult.success,
+            calSuccess: true,
             calBooking: calResult.data,
-            calError: calResult.error,
             bookingData: bookingRecord,
             calendarPayload,
           });
@@ -643,6 +773,18 @@ app.post('/api/bookings', async (req, res) => {
       notes,
     });
 
+    if (!calResult.success) {
+      return res.status(409).json({
+        success: false,
+        calSuccess: false,
+        error: calResult.error,
+        errorReason: calResult.errorReason,
+        userAdvice: calResult.userAdvice,
+        message: `Não foi possível agendar: ${calResult.errorReason || calResult.error}`,
+        calBooking: calResult.data,
+      });
+    }
+
     const calendarPayload = generateCalendarEventPayload({
       name,
       email,
@@ -660,7 +802,7 @@ app.post('/api/bookings', async (req, res) => {
       phone: req.body.phone,
       createdAt: new Date().toISOString(),
       calBooking: calResult.data,
-      calError: calResult.error,
+      calError: null,
       calendarPayload,
     };
     bookingsStore.push(bookingRecord);
@@ -670,13 +812,10 @@ app.post('/api/bookings', async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: calResult.success
-        ? `Agendamento criado com sucesso no Cal.com (v2) via create_booking! UID: ${bookingUid}`
-        : 'Agendamento registado localmente (Cal.com retornou aviso).',
+      message: `Agendamento criado com sucesso no Cal.com (v2) via create_booking! UID: ${bookingUid}`,
       uid: bookingUid || null,
-      calSuccess: calResult.success,
+      calSuccess: true,
       calBooking: calResult.data,
-      calError: calResult.error,
       booking: bookingRecord,
       calendarPayload,
     });
@@ -700,13 +839,13 @@ app.get('/health', (_req, res) => {
 });
 
 // Start listening immediately on host 0.0.0.0 and PORT without waiting for Vite or disk operations
-try {
-  app.listen(Number(PORT), '0.0.0.0', () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
-  });
-} catch (listenError) {
-  console.error('Fatal error during app.listen:', listenError);
-}
+const server = app.listen(Number(PORT), '0.0.0.0', () => {
+  console.log(`Server running on http://0.0.0.0:${PORT}`);
+});
+
+server.on('error', (listenError: any) => {
+  console.error('Server listen error:', listenError);
+});
 
 // Setup Vite Middlewares in development or static serve in production (non-blocking)
 async function setupFrontendMiddleware() {

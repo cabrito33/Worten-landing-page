@@ -10,6 +10,7 @@ import {
   Phone,
   Wrench,
   CheckCircle2,
+  AlertCircle,
   Copy,
   ExternalLink,
   Sparkles,
@@ -58,6 +59,8 @@ export interface ChatMessage {
   calBooking?: Record<string, any>;
   calSuccess?: boolean;
   calError?: string;
+  calErrorReason?: string;
+  calUserAdvice?: string;
   schedulingStep?: 'form' | 'confirmation' | 'completed';
 }
 
@@ -417,10 +420,12 @@ export const WortenVirtualAssistant: React.FC<WortenVirtualAssistantProps> = ({
         sender: 'assistant',
         text: data.text || 'Processado com sucesso!',
         timestamp: new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }),
-        calendarPayload: data.calendarPayload,
+        calendarPayload: data.calSuccess !== false ? data.calendarPayload : undefined,
         calBooking: data.calBooking,
         calSuccess: data.calSuccess,
         calError: data.calError,
+        calErrorReason: data.calErrorReason,
+        calUserAdvice: data.calUserAdvice,
         schedulingStep: data.bookingCreated ? 'completed' : undefined,
         suggestedActions: data.bookingCreated
           ? [
@@ -443,7 +448,7 @@ export const WortenVirtualAssistant: React.FC<WortenVirtualAssistantProps> = ({
             ]
           : [
               {
-                label: '📅 Agendar Visita / Reunião',
+                label: '📅 Escolher Outro Horário',
                 action: () => handleStartSchedulingFlow(),
               },
               {
@@ -544,29 +549,66 @@ export const WortenVirtualAssistant: React.FC<WortenVirtualAssistantProps> = ({
       });
 
       const data = await res.json();
+
+      if (!res.ok || !data.calSuccess) {
+        const errorReason =
+          data.errorReason ||
+          data.calErrorReason ||
+          'O horário pretendido já não se encontra disponível ou já tem outra reserva.';
+        const userAdvice =
+          data.userAdvice ||
+          data.calUserAdvice ||
+          'Por favor escolhe um horário ligeiramente diferente (ex: 30 minutos ou 1 hora mais tarde) em dias úteis entre as 09:00 e as 19:00.';
+
+        const failMsg: ChatMessage = {
+          id: `sched-fail-${Date.now()}`,
+          sender: 'assistant',
+          text: `⚠️ **Não foi possível confirmar o teu agendamento para ${schedulingData.date} às ${schedulingData.time}:**\n\n` +
+            `• **Motivo do erro:** ${errorReason}\n` +
+            (data.error ? `• **Detalhe técnico (Cal.com):** \`${data.error}\`\n\n` : '\n') +
+            `💡 **Como resolver:** ${userAdvice}\n\n` +
+            `Clica no botão abaixo para escolher outro horário ou envia uma mensagem com nova preferência!`,
+          timestamp: new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }),
+          calSuccess: false,
+          calError: data.error,
+          calErrorReason: errorReason,
+          calUserAdvice: userAdvice,
+          suggestedActions: [
+            {
+              label: '📅 Escolher Outro Horário',
+              action: () => setIsSchedulingMode(true),
+            },
+            {
+              label: '🛠️ Ver Serviços Worten Resolve',
+              action: () => handleSendPrompt('Que reparações estão disponíveis na Worten Resolve?'),
+            },
+          ],
+        };
+
+        setMessages((prev) => [...prev, failMsg]);
+        return;
+      }
+
       const calendarPayload = (data.calendarPayload ||
         formatLisbonISO(schedulingData.date, schedulingData.time, 60)) as CalendarEventPayload;
-
-      const calSuccessText = data.calSuccess
-        ? `\n\n🎉 **Confirmado e sincronizado na API do Cal.com (v2)!**\n• ID da Reserva: \`${data.calBooking?.id || ''}\`\n• UID: \`${data.calBooking?.uid || ''}\``
-        : '';
 
       const confirmMsg: ChatMessage = {
         id: `sched-done-${Date.now()}`,
         sender: 'assistant',
-        text: `Excelente, **${schedulingData.fullName}**! A ferramenta **create_booking** foi acionada com sucesso no sistema Worten Resolve.\n\n` +
+        text: `Excelente, **${schedulingData.fullName}**! O teu agendamento da **Worten Resolve** foi confirmado com sucesso na agenda:\n\n` +
           `• **Cliente:** ${schedulingData.fullName}\n` +
           `• **Email:** ${schedulingData.email}\n` +
           (schedulingData.phone ? `• **Telemóvel:** ${schedulingData.phone}\n` : '') +
           `• **Notas do Serviço:** ${schedulingData.serviceType}\n` +
-          `• **Data e Hora (startTime):** ${startTime} (Dias úteis, 09:00 - 19:00)` +
-          calSuccessText +
-          `\n\nO evento está pronto para sincronização com o teu **Google Calendar**. Podes também descarregar o ficheiro .ics ou inspecionar o payload estruturado:`,
+          `• **Data e Hora (startTime):** ${startTime} (Dias úteis, 09:00 - 19:00)\n\n` +
+          `🎉 **Confirmado e sincronizado na API do Cal.com (v2)!**\n` +
+          `• ID da Reserva: \`${data.calBooking?.id || ''}\`\n` +
+          `• UID: \`${data.calBooking?.uid || ''}\`\n\n` +
+          `O evento está pronto para sincronização com o teu **Google Calendar**. Podes também descarregar o ficheiro .ics abaixo:`,
         timestamp: new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }),
         calendarPayload: calendarPayload,
         calBooking: data.calBooking,
-        calSuccess: data.calSuccess,
-        calError: data.calError,
+        calSuccess: true,
         schedulingStep: 'completed',
       };
 
@@ -921,8 +963,43 @@ export const WortenVirtualAssistant: React.FC<WortenVirtualAssistantProps> = ({
                       </form>
                     )}
 
-                    {/* Cal.com v2 Live Integration Card */}
-                    {msg.calBooking && (
+                    {/* Cal.com v2 Error Explanation Card */}
+                    {!msg.calSuccess && (msg.calErrorReason || msg.calError) && (
+                      <div className="mt-3 p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/70 text-amber-900 dark:text-amber-200 text-xs space-y-2.5 font-sans shadow-xs">
+                        <div className="flex items-center gap-2 font-bold text-amber-900 dark:text-amber-300 border-b border-amber-200 dark:border-amber-800/60 pb-1.5">
+                          <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                          <span>Motivo da Indisponibilidade de Agendamento</span>
+                        </div>
+                        <div className="space-y-1.5">
+                          <p className="font-semibold text-neutral-900 dark:text-neutral-100">
+                            {msg.calErrorReason || 'O horário selecionado não pôde ser agendado na plataforma Cal.com.'}
+                          </p>
+                          {msg.calError && (
+                            <div className="text-[11px] font-mono text-neutral-600 dark:text-neutral-400 bg-amber-100/70 dark:bg-neutral-900/80 px-2.5 py-1 rounded border border-amber-200 dark:border-neutral-800">
+                              Código / Detalhe Cal.com: {msg.calError}
+                            </div>
+                          )}
+                          {msg.calUserAdvice && (
+                            <p className="text-[11px] text-amber-800 dark:text-amber-300 font-medium">
+                              💡 {msg.calUserAdvice}
+                            </p>
+                          )}
+                        </div>
+                        <div className="pt-1">
+                          <button
+                            type="button"
+                            onClick={handleStartSchedulingFlow}
+                            className="px-3.5 py-1.5 bg-[#DE001A] hover:bg-[#BF0016] text-white text-[11px] font-bold rounded-lg shadow-xs cursor-pointer inline-flex items-center gap-1.5 transition-colors"
+                          >
+                            <Calendar className="w-3.5 h-3.5" />
+                            <span>Escolher Outro Horário</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Cal.com v2 Live Integration Card (Only on success) */}
+                    {msg.calSuccess && msg.calBooking && msg.calBooking.status !== 'error' && (
                       <div className="mt-3 p-3 rounded-xl bg-gradient-to-r from-neutral-900 to-neutral-950 border border-emerald-500/40 text-neutral-100 font-sans space-y-2.5 shadow-sm">
                         <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
                           <div className="flex items-center gap-1.5 text-emerald-400 font-bold text-xs">
@@ -979,7 +1056,7 @@ export const WortenVirtualAssistant: React.FC<WortenVirtualAssistantProps> = ({
                     )}
 
                     {/* Interactive Calendar Actions */}
-                    {msg.calendarPayload && (
+                    {msg.calSuccess !== false && msg.calendarPayload && (
                       <div className="mt-3 flex flex-wrap items-center gap-2 pt-1 font-sans">
                         <a
                           href={generateGoogleCalendarUrl(msg.calendarPayload)}
