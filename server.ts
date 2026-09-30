@@ -1042,6 +1042,14 @@ app.get('/health', (_req, res) => {
   res.status(200).send('OK');
 });
 
+// Favicon oficial Worten servido diretamente pelo Express
+app.get(['/favicon.ico', '/favicon.svg'], (_req, res) => {
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%23DF0000'/><text x='50%' y='54%' dominant-baseline='middle' text-anchor='middle' fill='%23FFFFFF' font-family='Arial, sans-serif' font-weight='900' font-size='38'>W</text></svg>`;
+  res.setHeader('Content-Type', 'image/svg+xml');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.send(svg);
+});
+
 // Start listening immediately on host 0.0.0.0 and PORT without waiting for Vite or disk operations
 const server = app.listen(Number(PORT), '0.0.0.0', () => {
   console.log(`Server running on http://0.0.0.0:${PORT}`);

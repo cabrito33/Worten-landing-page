@@ -38,6 +38,20 @@ export default function App() {
   const [showScrollTop, setShowScrollTop] = useState<boolean>(false);
   const [currentPath, setCurrentPath] = useState<string>(() => window.location.pathname);
 
+  // Configuração definitiva do título e favicon oficial da Worten
+  useEffect(() => {
+    document.title = "Worten";
+    let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'icon';
+      document.head.appendChild(link);
+    }
+    link.type = 'image/svg+xml';
+    link.href =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23DF0000'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' fill='%23FFFFFF' font-family='Arial, sans-serif' font-weight='900' font-size='38'%3EW%3C/text%3E%3C/svg%3E";
+  }, []);
+
   // Popstate listener for client-side routing
   useEffect(() => {
     const handlePopState = () => {
