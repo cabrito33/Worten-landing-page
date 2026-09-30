@@ -48,6 +48,7 @@ interface HeaderProps {
   selectedCategory?: string;
   onSelectCategory?: (category: string) => void;
   onOpenChatbot?: () => void;
+  onNavigateToAdmin?: () => void;
 }
 
 interface MegamenuDept {
@@ -78,6 +79,7 @@ export const Header: React.FC<HeaderProps> = ({
   selectedCategory = 'all',
   onSelectCategory,
   onOpenChatbot,
+  onNavigateToAdmin,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -674,6 +676,15 @@ export const Header: React.FC<HeaderProps> = ({
                 Worten Resolve
               </button>
 
+              {/* Pedido de Proposta IA Highlight Button */}
+              <button
+                onClick={() => onNavigateTo('pedido-proposta')}
+                className="bg-neutral-900 hover:bg-black text-white font-extrabold text-xs px-3 py-1 rounded-md shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 border border-red-400/40"
+              >
+                <Sparkles className="w-3 h-3 text-red-400" />
+                <span>Pedido de Proposta IA</span>
+              </button>
+
               {/* Cupões para ti */}
               <button
                 onClick={() => onNavigateTo('promocoes')}
@@ -734,6 +745,17 @@ export const Header: React.FC<HeaderProps> = ({
                 >
                   <Bot className="w-3.5 h-3.5 text-amber-300" />
                   <span>Apoio</span>
+                </button>
+              )}
+
+              {onNavigateToAdmin && (
+                <button
+                  onClick={onNavigateToAdmin}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-black/30 hover:bg-black/50 text-white transition-colors cursor-pointer font-bold text-xs border border-white/20"
+                  title="Área de Administração (Firebase Auth & Firestore)"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-red-200" />
+                  <span>Admin</span>
                 </button>
               )}
 

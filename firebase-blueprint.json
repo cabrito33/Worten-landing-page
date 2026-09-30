@@ -1,0 +1,172 @@
+{
+  "entities": {
+    "CatalogItem": {
+      "title": "CatalogItem",
+      "description": "Serviço do catálogo de assistência técnica da Worten Resolve com preço em cêntimos.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Identificador único do serviço no catálogo."
+        },
+        "nome": {
+          "type": "string",
+          "description": "Nome descritivo do serviço.",
+          "maxLength": 150
+        },
+        "categoria": {
+          "type": "string",
+          "description": "Categoria do serviço (informática, climatização, grandes eletrodomésticos, mobile, tv).",
+          "maxLength": 60
+        },
+        "precoCentimos": {
+          "type": "number",
+          "description": "Preço base do serviço em cêntimos (ex: 8900 = 89,00 €)."
+        },
+        "ativo": {
+          "type": "boolean",
+          "description": "Indica se o serviço está ativo para seleção e propostas."
+        },
+        "descricao": {
+          "type": "string",
+          "description": "Descrição sucinta do serviço prestado.",
+          "maxLength": 500
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Data de criação em formato ISO 8601."
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Data de atualização em formato ISO 8601."
+        }
+      },
+      "required": ["nome", "precoCentimos", "ativo"]
+    },
+    "Pedido": {
+      "title": "Pedido",
+      "description": "Pedido de proposta submetido pelo cliente na landing page Worten Resolve.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "ID do pedido."
+        },
+        "nome": {
+          "type": "string",
+          "description": "Nome do cliente que solicita a proposta.",
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "description": "Email de contacto do cliente.",
+          "maxLength": 120
+        },
+        "textoOriginal": {
+          "type": "string",
+          "description": "Texto livre introduzido pelo cliente descrevendo a avaria ou serviço.",
+          "maxLength": 3000
+        },
+        "status": {
+          "type": "string",
+          "description": "Estado do pedido (pendente, proposta_gerada, em_revisao, concluido, cancelado).",
+          "enum": ["pendente", "proposta_gerada", "em_revisao", "concluido", "cancelado"]
+        },
+        "data": {
+          "type": "string",
+          "description": "Data de submissão do pedido (ISO 8601)."
+        },
+        "propostaToken": {
+          "type": "string",
+          "description": "Token único da proposta gerada associada a este pedido."
+        },
+        "interpretacaoIA": {
+          "type": "object",
+          "description": "Interpretação estruturada gerada pelo modelo Gemini.",
+          "properties": {
+            "resumo": { "type": "string" },
+            "itensIdentificados": { "type": "array" },
+            "informacaoEmFalta": { "type": "string" },
+            "necessitaRevisao": { "type": "boolean" },
+            "motivoRevisao": { "type": "string" }
+          }
+        }
+      },
+      "required": ["nome", "email", "textoOriginal", "status", "data"]
+    },
+    "Proposta": {
+      "title": "Proposta",
+      "description": "Proposta comercial formal gerada pelo sistema para o pedido do cliente.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "ID único da proposta."
+        },
+        "numeroProposta": {
+          "type": "string",
+          "description": "Identificador legível da proposta (ex: PROP-2026-0012).",
+          "maxLength": 50
+        },
+        "pedidoId": {
+          "type": "string",
+          "description": "ID do pedido de origem."
+        },
+        "token": {
+          "type": "string",
+          "description": "Token de acesso público e seguro para a proposta."
+        },
+        "clienteNome": {
+          "type": "string",
+          "description": "Nome do cliente.",
+          "maxLength": 120
+        },
+        "clienteEmail": {
+          "type": "string",
+          "description": "Email do cliente.",
+          "maxLength": 120
+        },
+        "itens": {
+          "type": "array",
+          "description": "Lista de itens orçamentados com preços unitários e totais do catálogo."
+        },
+        "totalSemIvaCentimos": {
+          "type": "number",
+          "description": "Subtotal em cêntimos sem IVA (taxa de 23% em vigor)."
+        },
+        "totalComIvaCentimos": {
+          "type": "number",
+          "description": "Total final em cêntimos com IVA (23%)."
+        },
+        "dataValidade": {
+          "type": "string",
+          "description": "Data de validade da proposta (15 dias a contar da emissão)."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Data de emissão da proposta."
+        },
+        "status": {
+          "type": "string",
+          "description": "Estado da proposta (ativa, aceite, expirada, cancelada).",
+          "enum": ["ativa", "aceite", "expirada", "cancelada"]
+        }
+      },
+      "required": ["token", "itens", "totalSemIvaCentimos", "dataValidade", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/catalogo/{itemId}": {
+      "schema": "CatalogItem",
+      "description": "Catálogo de serviços técnicos da Worten Resolve com preços em cêntimos."
+    },
+    "/pedidos/{pedidoId}": {
+      "schema": "Pedido",
+      "description": "Pedidos de proposta submetidos pelos clientes com interpretação estruturada da IA."
+    },
+    "/propostas/{propostaId}": {
+      "schema": "Proposta",
+      "description": "Propostas comerciais com token público e data de validade de 15 dias."
+    }
+  }
+}

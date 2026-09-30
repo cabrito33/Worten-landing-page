@@ -17,6 +17,9 @@ import {
   WortenStore,
 } from './components/Modals';
 import { WortenVirtualAssistant } from './components/WortenVirtualAssistant';
+import { PedidoPropostaSection } from './components/PedidoPropostaSection';
+import { ProposalViewPage } from './components/ProposalViewPage';
+import { AdminDashboardPage } from './components/AdminDashboardPage';
 import { PromoProduct, EditorialArticle } from './types';
 import { CheckCircle2, ArrowUp } from 'lucide-react';
 
@@ -33,6 +36,22 @@ export default function App() {
   const [selectedStore, setSelectedStore] = useState<WortenStore>(WORTEN_STORES[0]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [showScrollTop, setShowScrollTop] = useState<boolean>(false);
+  const [currentPath, setCurrentPath] = useState<string>(() => window.location.pathname);
+
+  // Popstate listener for client-side routing
+  useEffect(() => {
+    const handlePopState = () => {
+      setCurrentPath(window.location.pathname);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const navigateTo = (path: string) => {
+    window.history.pushState({}, '', path);
+    setCurrentPath(path);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   // Sync dark class on root document
   useEffect(() => {
@@ -101,6 +120,28 @@ export default function App() {
     triggerToast(`A abrir agendamento com a Worten Resolve para ${serviceDetail}...`);
   };
 
+  // Rotas Especiais: Proposta Individual (/proposta/:token)
+  if (currentPath.startsWith('/proposta/')) {
+    const token = currentPath.replace(/^\/proposta\//, '').split('?')[0].split('/')[0];
+    return (
+      <ProposalViewPage
+        token={token}
+        onNavigateHome={() => navigateTo('/')}
+        onOpenAssistant={() => setChatbotOpen(true)}
+      />
+    );
+  }
+
+  // Rotas Especiais: Área de Administração (/admin)
+  if (currentPath === '/admin' || currentPath.startsWith('/admin')) {
+    return (
+      <AdminDashboardPage
+        onNavigateHome={() => navigateTo('/')}
+        onOpenProposal={(tok) => navigateTo(`/proposta/${tok}`)}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#F4F4F6] text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100 transition-colors selection:bg-[#DE001A] selection:text-white font-sans">
       {/* Toast Notification */}
@@ -126,12 +167,18 @@ export default function App() {
         selectedCategory={selectedCategory}
         onSelectCategory={(cat) => setSelectedCategory(cat)}
         onOpenChatbot={() => setChatbotOpen(true)}
+        onNavigateToAdmin={() => navigateTo('/admin')}
       />
 
       {/* 2 & 3. Hero Carousel Principal + Barra de Confiança e Reversão de Risco */}
       <HeroSection
         onNavigateTo={handleNavigateTo}
         onSelectDeal={handleSelectDeal}
+      />
+
+      {/* PROTÓTIPO 2: Formulário em Destaque de Pedido de Proposta (Worten Resolve com IA) */}
+      <PedidoPropostaSection
+        onNavigateToProposal={(token) => navigateTo(`/proposta/${token}`)}
       />
 
       {/* 4. Acesso Rápido a Categorias & Campanha 20% em Talão */}

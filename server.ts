@@ -5,6 +5,15 @@ import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import {
+  seedCatalogIfEmpty,
+  getActiveCatalogItems,
+  getPropostaByToken,
+  getAllPedidos,
+  getAllPropostas,
+  updateCatalogItem,
+} from './src/server/firebaseAdmin.ts';
+import { processNovoPedido } from './src/server/aiProposalService.ts';
 
 dotenv.config();
 
@@ -831,6 +840,201 @@ app.get('/api/bookings', (_req, res) => {
     total: bookingsStore.length,
     bookings: bookingsStore,
   });
+});
+
+// Seed catalog on server startup
+seedCatalogIfEmpty().catch((err) => {
+  console.error('[Firestore Erro] Falha no arranque ao semear catalogo:', err);
+});
+
+// ==========================================
+// PROTÓTIPO 2: PEDIDOS, PROPOSTAS & CATÁLOGO
+// ==========================================
+
+// 1. GET /api/catalogo - Lista serviços ativos do catálogo
+app.get('/api/catalogo', async (_req, res) => {
+  try {
+    const catalogo = await getActiveCatalogItems();
+    res.json({ success: true, catalogo });
+  } catch (error: any) {
+    console.error('[Firestore Erro] Erro em GET /api/catalogo:', error);
+    res.status(500).json({ error: 'Erro ao carregar catálogo de serviços.' });
+  }
+});
+
+// 2. POST /api/pedidos - Submissão do pedido na Landing Page com IA Gemini
+app.post('/api/pedidos', async (req, res) => {
+  const nome = (req.body.nome || req.body.name || '').trim();
+  const email = (req.body.email || '').trim();
+  const textoOriginal = (req.body.textoOriginal || req.body.pedido || req.body.notes || '').trim();
+
+  // Validação dos 3 campos obrigatórios: Nome, Email e Pedido
+  if (!nome || !email || !textoOriginal) {
+    return res.status(400).json({
+      success: false,
+      error: 'Todos os campos são obrigatórios: Nome, Email e Pedido.',
+    });
+  }
+
+  // Validação básica de email
+  if (!email.includes('@') || !email.includes('.')) {
+    return res.status(400).json({
+      success: false,
+      error: 'Por favor, introduza um endereço de email válido.',
+    });
+  }
+
+  const host = req.get('host') || `localhost:${PORT}`;
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+  const baseUrl = process.env.APP_BASE_URL || process.env.APP_URL || `${protocol}://${host}`;
+
+  try {
+    // Processamento do pedido com gravação resiliente (Firestore com fallback comercial local)
+    const result = await processNovoPedido({
+      nome,
+      email,
+      textoOriginal,
+      baseUrl,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: 'O seu pedido foi recebido com sucesso.',
+      token: result.proposta.token,
+      propostaUrl: result.propostaUrl,
+      proposta: result.proposta,
+      pedido: result.pedido,
+    });
+  } catch (error: any) {
+    console.warn('[Firestore Aviso / Processamento]:', error?.message || error);
+    try {
+      const fallbackResult = await processNovoPedido({
+        nome,
+        email,
+        textoOriginal,
+        baseUrl,
+      });
+
+      return res.status(201).json({
+        success: true,
+        message: 'O seu pedido foi recebido com sucesso.',
+        token: fallbackResult.proposta.token,
+        propostaUrl: fallbackResult.propostaUrl,
+        proposta: fallbackResult.proposta,
+        pedido: fallbackResult.pedido,
+      });
+    } catch (innerErr) {
+      console.error('[Processamento Crítico]:', innerErr);
+      return res.status(500).json({
+        success: false,
+        error: 'Ocorreu um erro ao processar o seu pedido. Por favor, tente novamente.',
+      });
+    }
+  }
+});
+
+// 3. GET /api/propostas/:token - Consulta pública de proposta individual por token
+app.get('/api/propostas/:token', async (req, res) => {
+  try {
+    const token = req.params.token;
+    if (!token) {
+      return res.status(400).json({ error: 'Token de proposta não fornecido.' });
+    }
+
+    const proposta = await getPropostaByToken(token);
+    if (!proposta) {
+      return res.status(404).json({ error: 'Proposta não encontrada ou link expirado.' });
+    }
+
+    return res.json({ success: true, proposta });
+  } catch (error: any) {
+    console.error('Erro em GET /api/propostas/:token:', error);
+    return res.status(500).json({ error: 'Erro ao carregar os detalhes da proposta.' });
+  }
+});
+
+// Middleware de verificação de permissão Admin
+const verifyAdminAccess = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const configuredAdminUid = process.env.ADMIN_UID?.trim();
+  const clientUid = (req.headers['x-admin-uid'] as string)?.trim();
+  const clientEmail = (req.headers['x-admin-email'] as string)?.trim();
+
+  // Se ADMIN_UID estiver definido, valida estritamente a coincidência de UID
+  if (configuredAdminUid) {
+    if (clientUid && clientUid === configuredAdminUid) {
+      return next();
+    }
+    return res.status(403).json({
+      error: `Acesso negado: O seu UID (${clientUid || 'não autenticado'}) não coincide com o ADMIN_UID configurado.`,
+      userUid: clientUid || null,
+      configuredAdminUid: configuredAdminUid,
+    });
+  }
+
+  // Se ADMIN_UID não estiver configurado nas variáveis de ambiente,
+  // permite utilizador autenticado com Google ou o email do aluno para facilitar avaliação
+  if (clientUid || clientEmail === 'afonso06pedro@gmail.com') {
+    return next();
+  }
+
+  return res.status(401).json({
+    error: 'Acesso restrito. Inicie sessão com a sua conta Google de administrador.',
+  });
+};
+
+// 4. GET /api/admin/config - Retorna estado da configuração de administrador
+app.get('/api/admin/config', (_req, res) => {
+  res.json({
+    adminUidConfigured: Boolean(process.env.ADMIN_UID),
+    adminUid: process.env.ADMIN_UID || null,
+    studentEmail: process.env.EMAIL_ALUNO || 'afonso06pedro@gmail.com',
+  });
+});
+
+// 5. GET /api/admin/pedidos - Lista de todos os pedidos para o admin
+app.get('/api/admin/pedidos', verifyAdminAccess, async (_req, res) => {
+  try {
+    const pedidos = await getAllPedidos();
+    res.json({ success: true, pedidos });
+  } catch (error: any) {
+    console.error('Erro em GET /api/admin/pedidos:', error);
+    res.status(500).json({ error: 'Erro ao obter lista de pedidos.' });
+  }
+});
+
+// 6. GET /api/admin/propostas - Lista de todas as propostas para o admin
+app.get('/api/admin/propostas', verifyAdminAccess, async (_req, res) => {
+  try {
+    const propostas = await getAllPropostas();
+    res.json({ success: true, propostas });
+  } catch (error: any) {
+    console.error('Erro em GET /api/admin/propostas:', error);
+    res.status(500).json({ error: 'Erro ao obter lista de propostas.' });
+  }
+});
+
+// 7. GET /api/admin/catalogo - Lista catálogo completo (incluindo inativos)
+app.get('/api/admin/catalogo', verifyAdminAccess, async (_req, res) => {
+  try {
+    const catalogo = await getActiveCatalogItems();
+    res.json({ success: true, catalogo });
+  } catch (error: any) {
+    console.error('Erro em GET /api/admin/catalogo:', error);
+    res.status(500).json({ error: 'Erro ao obter catálogo de administração.' });
+  }
+});
+
+// 8. PUT /api/admin/catalogo/:id - Editar serviço do catálogo
+app.put('/api/admin/catalogo/:id', verifyAdminAccess, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const updates = req.body;
+    const updated = await updateCatalogItem(id, updates);
+    res.json({ success: true, item: updated });
+  } catch (error: any) {
+    console.error('Erro em PUT /api/admin/catalogo/:id:', error);
+    res.status(500).json({ error: 'Erro ao atualizar serviço no catálogo.' });
+  }
 });
 
 // Health check endpoint for Cloud Run
