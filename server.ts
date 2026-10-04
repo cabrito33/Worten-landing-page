@@ -14,8 +14,8 @@ import {
   getAllPropostas,
   updateCatalogItem,
   adminAuth,
-  CatalogItem,
 } from './src/server/firebaseAdmin.ts';
+import type { CatalogItem } from './src/server/firebaseAdmin.ts';
 import { processNovoPedido } from './src/server/aiProposalService.ts';
 
 dotenv.config();

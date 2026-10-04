@@ -302,7 +302,7 @@ export async function processNovoPedido(params: {
         quantidade,
         precoUnitarioCentimos,
         totalItemCentimos,
-        evidencia: identified.evidencia,
+        evidencia: identified.evidencia || '',
       });
     }
   }
@@ -366,6 +366,7 @@ export async function processNovoPedido(params: {
   const dataValidade = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString();
 
   // CORREÇÃO 5: Cria a proposta inicialmente com estadoNotificacao = 'pendente'
+  // Campos opcionais com valores por defeito para nunca enviarem undefined ao Firestore
   const propostaRecord: PropostaRecord = {
     id: propostaId,
     numeroProposta,
@@ -383,10 +384,10 @@ export async function processNovoPedido(params: {
     createdAt: nowISO,
     status: 'ativa',
     estadoNotificacao: 'pendente',
-    interpretacaoResumo: interpretacao.resumo,
-    informacaoEmFalta: interpretacao.informacaoEmFalta,
-    necessitaRevisao: interpretacao.necessitaRevisao,
-    motivoRevisao: interpretacao.motivoRevisao,
+    interpretacaoResumo: interpretacao.resumo || '',
+    informacaoEmFalta: interpretacao.informacaoEmFalta || '',
+    necessitaRevisao: Boolean(interpretacao.necessitaRevisao),
+    motivoRevisao: interpretacao.motivoRevisao || '',
   };
 
   const pedidoRecord: PedidoRecord = {

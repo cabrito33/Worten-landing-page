@@ -246,6 +246,32 @@ const inMemoryPedidos: Map<string, PedidoRecord> = new Map();
 const inMemoryPropostas: Map<string, PropostaRecord> = new Map();
 
 /**
+ * Remove recursivamente todos os campos com valor `undefined` de um objeto ou array
+ * para garantir que o Firestore (Admin SDK e Web SDK) nunca receba valores undefined.
+ */
+export function removeUndefined<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data.map((item) => removeUndefined(item)) as unknown as T;
+  }
+  if (typeof data === 'object') {
+    if (data instanceof Date || (data.constructor && data.constructor.name !== 'Object')) {
+      return data;
+    }
+    const clean: Record<string, any> = {};
+    for (const [key, value] of Object.entries(data)) {
+      if (value !== undefined) {
+        clean[key] = removeUndefined(value);
+      }
+    }
+    return clean as T;
+  }
+  return data;
+}
+
+/**
  * Inicializa a coleção 'catalogo' no arranque do servidor com os 5 serviços da Worten Resolve
  */
 export async function seedCatalogIfEmpty(): Promise<CatalogItem[]> {
@@ -265,7 +291,7 @@ export async function seedCatalogIfEmpty(): Promise<CatalogItem[]> {
       if (snap.empty) {
         console.log('[Firebase Admin Firestore] Catálogo vazio. A semear os 5 serviços...');
         for (const item of INITIAL_CATALOG_ITEMS) {
-          await adminDb.collection('catalogo').doc(item.id).set(item);
+          await adminDb.collection('catalogo').doc(item.id).set(removeUndefined(item));
         }
         return INITIAL_CATALOG_ITEMS;
       }
@@ -280,7 +306,7 @@ export async function seedCatalogIfEmpty(): Promise<CatalogItem[]> {
 
       for (const defItem of INITIAL_CATALOG_ITEMS) {
         if (!inMemoryCatalog.has(defItem.id)) {
-          await adminDb.collection('catalogo').doc(defItem.id).set(defItem);
+          await adminDb.collection('catalogo').doc(defItem.id).set(removeUndefined(defItem));
           inMemoryCatalog.set(defItem.id, { ...defItem });
           items.push(defItem);
         }
@@ -301,7 +327,7 @@ export async function seedCatalogIfEmpty(): Promise<CatalogItem[]> {
     if (snap.empty) {
       console.log('[Firestore Web Client] A semear os 5 serviços...');
       for (const item of INITIAL_CATALOG_ITEMS) {
-        await webSetDoc(webDoc(webDb, 'catalogo', item.id), item);
+        await webSetDoc(webDoc(webDb, 'catalogo', item.id), removeUndefined(item));
       }
       return INITIAL_CATALOG_ITEMS;
     }
@@ -316,7 +342,7 @@ export async function seedCatalogIfEmpty(): Promise<CatalogItem[]> {
 
     for (const defItem of INITIAL_CATALOG_ITEMS) {
       if (!inMemoryCatalog.has(defItem.id)) {
-        await webSetDoc(webDoc(webDb, 'catalogo', defItem.id), defItem);
+        await webSetDoc(webDoc(webDb, 'catalogo', defItem.id), removeUndefined(defItem));
         inMemoryCatalog.set(defItem.id, { ...defItem });
         items.push(defItem);
       }
@@ -384,10 +410,11 @@ export async function getAllCatalogItems(): Promise<CatalogItem[]> {
  */
 export async function savePedido(pedido: PedidoRecord): Promise<void> {
   inMemoryPedidos.set(pedido.id, pedido);
+  const sanitizedPedido = removeUndefined(pedido);
 
   if (adminDb && adminFirestoreOperational) {
     try {
-      await adminDb.collection('pedidos').doc(pedido.id).set(pedido);
+      await adminDb.collection('pedidos').doc(pedido.id).set(sanitizedPedido);
       console.log(`[Firebase Admin] Pedido ${pedido.id} guardado com sucesso na coleção 'pedidos'.`);
       return;
     } catch (err: any) {
@@ -396,7 +423,7 @@ export async function savePedido(pedido: PedidoRecord): Promise<void> {
   }
 
   try {
-    await webSetDoc(webDoc(webDb, 'pedidos', pedido.id), pedido);
+    await webSetDoc(webDoc(webDb, 'pedidos', pedido.id), sanitizedPedido);
     console.log(`[Firestore Web] Pedido ${pedido.id} guardado com sucesso na coleção 'pedidos'.`);
   } catch (err: any) {
     console.warn(`[Firestore Web] Erro ao gravar pedido ${pedido.id}:`, err?.message || err);
@@ -409,10 +436,11 @@ export async function savePedido(pedido: PedidoRecord): Promise<void> {
  */
 export async function saveProposta(proposta: PropostaRecord): Promise<void> {
   inMemoryPropostas.set(proposta.token, proposta);
+  const sanitizedProposta = removeUndefined(proposta);
 
   if (adminDb && adminFirestoreOperational) {
     try {
-      await adminDb.collection('propostas').doc(proposta.id).set(proposta);
+      await adminDb.collection('propostas').doc(proposta.id).set(sanitizedProposta);
       console.log(`[Firebase Admin] Proposta ${proposta.numeroProposta} (${proposta.token}) guardada na coleção 'propostas'.`);
       return;
     } catch (err: any) {
@@ -421,7 +449,7 @@ export async function saveProposta(proposta: PropostaRecord): Promise<void> {
   }
 
   try {
-    await webSetDoc(webDoc(webDb, 'propostas', proposta.id), proposta);
+    await webSetDoc(webDoc(webDb, 'propostas', proposta.id), sanitizedProposta);
     console.log(`[Firestore Web] Proposta ${proposta.numeroProposta} (${proposta.token}) guardada na coleção 'propostas'.`);
   } catch (err: any) {
     console.warn(`[Firestore Web] Erro ao gravar proposta ${proposta.id}:`, err?.message || err);
@@ -444,10 +472,11 @@ export async function updatePropostaNotificacao(
   if (existing) {
     const updated = { ...existing, ...updates };
     inMemoryPropostas.set(token, updated);
+    const sanitizedUpdated = removeUndefined(updated);
 
     if (adminDb && adminFirestoreOperational) {
       try {
-        await adminDb.collection('propostas').doc(updated.id).set(updated, { merge: true });
+        await adminDb.collection('propostas').doc(updated.id).set(sanitizedUpdated, { merge: true });
         return;
       } catch (err: any) {
         console.warn('[Firebase Admin] Erro ao atualizar notificação:', err?.message || err);
@@ -455,7 +484,7 @@ export async function updatePropostaNotificacao(
     }
 
     try {
-      await webSetDoc(webDoc(webDb, 'propostas', updated.id), updated, { merge: true });
+      await webSetDoc(webDoc(webDb, 'propostas', updated.id), sanitizedUpdated, { merge: true });
     } catch (err: any) {
       console.warn('[Firestore Web] Erro ao atualizar notificação:', err?.message || err);
     }
@@ -607,10 +636,11 @@ export async function updateCatalogItem(
   };
 
   inMemoryCatalog.set(id, updated);
+  const sanitizedUpdated = removeUndefined(updated);
 
   if (adminDb && adminFirestoreOperational) {
     try {
-      await adminDb.collection('catalogo').doc(id).set(updated, { merge: true });
+      await adminDb.collection('catalogo').doc(id).set(sanitizedUpdated, { merge: true });
       console.log(`[Firebase Admin] Item ${id} atualizado.`);
       return updated;
     } catch (err: any) {
@@ -619,7 +649,7 @@ export async function updateCatalogItem(
   }
 
   try {
-    await webSetDoc(webDoc(webDb, 'catalogo', id), updated, { merge: true });
+    await webSetDoc(webDoc(webDb, 'catalogo', id), sanitizedUpdated, { merge: true });
     console.log(`[Firestore Web] Item do catálogo ${id} atualizado.`);
   } catch (error: any) {
     console.warn(`[Firestore Aviso] Erro ao atualizar catálogo ${id}:`, error?.message || error);
