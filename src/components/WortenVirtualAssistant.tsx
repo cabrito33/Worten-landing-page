@@ -127,7 +127,7 @@ export const WortenVirtualAssistant: React.FC<WortenVirtualAssistantProps> = ({
     {
       id: 'welcome-1',
       sender: 'assistant',
-      text: 'Olá! Sou o teu assistente virtual oficial da **Worten Portugal (Worten Resolve)**.\n\nTrato-te sempre por "tu" e estou aqui para te ajudar de forma rápida e descomplicada. Podes colocar-me dúvidas sobre:\n• **Entregas grátis** (>35€ em pequenos formatos e levantamento gratuito em loja);\n• **Devoluções em 14 dias** em qualquer loja Worten;\n• **Reparações e assistência técnica Worten Resolve** (ecrãs, baterias, computadores e eletrodomésticos);\n• **Agendamento de reuniões ou visitas técnicas** (sempre no futuro com mínimo de 2 horas ou no dia útil seguinte, dias úteis 09:00 às 19:00).\n\nComo te posso ajudar hoje?',
+      text: 'Olá! Sou o teu assistente virtual oficial da **Worten Portugal (Worten Resolve)**.\n\nTrato-te sempre por "tu" e estou aqui para te ajudar de forma rápida e descomplicada. Podes colocar-me dúvidas sobre:\n• **Entregas grátis** (>35€ em pequenos formatos e levantamento gratuito em loja);\n• **Devoluções em 30 dias** em qualquer loja Worten;\n• **Reparações e assistência técnica Worten Resolve** (ecrãs, baterias, computadores e eletrodomésticos);\n• **Agendamento de reuniões ou visitas técnicas** (sempre no futuro com mínimo de 2 horas ou no dia útil seguinte, dias úteis 09:00 às 19:00).\n\nComo te posso ajudar hoje?',
       timestamp: 'Agora',
       suggestedActions: [
         {
@@ -135,8 +135,8 @@ export const WortenVirtualAssistant: React.FC<WortenVirtualAssistantProps> = ({
           action: () => handleSendPrompt('Qual é o valor mínimo para ter entregas grátis?'),
         },
         {
-          label: '↩️ Devolução em 14 dias',
-          action: () => handleSendPrompt('Como funciona o prazo de devolução de 14 dias em loja?'),
+          label: '↩️ Devolução em 30 dias',
+          action: () => handleSendPrompt('Como funciona o prazo de devolução de 30 dias em loja?'),
         },
         {
           label: '🛠️ Reparações Worten Resolve',
@@ -295,12 +295,13 @@ export const WortenVirtualAssistant: React.FC<WortenVirtualAssistantProps> = ({
       q.includes('reembols') ||
       q.includes('troca') ||
       q.includes('desistir') ||
-      q.includes('14 dias')
+      q.includes('14 dias') ||
+      q.includes('30 dias')
     ) {
       return {
         responseText:
           'Sobre as **Devoluções e Reembolsos** na Worten:\n\n' +
-          '• **Prazo Geral:** Tens **14 dias** a contar da receção do artigo para devoluções online (direito de livre resolução). Clientes com cartão Worten Life contam com extensões de prazo aplicáveis.\n' +
+          '• **Prazo Geral:** Tens **30 dias** a contar da receção ou compra do artigo para devoluções em qualquer loja Worten ou com recolha ao domicílio.\n' +
           '• **Onde Devolver:** Podes devolver gratuitamente em qualquer loja física Worten do país ou solicitar a recolha ao domicílio através da tua área de cliente em "A Minha Conta".\n' +
           '• **Condições:** O produto deve estar completo, na embalagem original, com todos os acessórios e fatura de compra.\n' +
           '• **Exceções Legais:** Não se aceitam devoluções de auriculares in-ear abertos, artigos de higiene pessoal ou videojogos e software deslacrados.\n\n' +
@@ -373,7 +374,7 @@ export const WortenVirtualAssistant: React.FC<WortenVirtualAssistantProps> = ({
     // Default Fallback
     return {
       responseText:
-        'Olha, consigo ajudar-te com informações detalhadas sobre as nossas políticas de **portes grátis (>35€)**, **devoluções em 14 dias**, **pagamentos até 24x sem juros no Cartão Universo**, **garantia de 3 anos** ou **Preço Mínimo Garantido**.\n\nSe tiveres uma questão técnica complexa ou precisares de agendar um técnico ou instalação, posso também marcar uma chamada ou visita técnica no teu **Google Calendar**!',
+        'Olha, consigo ajudar-te com informações detalhadas sobre as nossas políticas de **portes grátis (>35€)**, **devoluções em 30 dias**, **pagamentos até 24x sem juros no Cartão Universo**, **garantia de 3 anos** ou **Preço Mínimo Garantido**.\n\nSe tiveres uma questão técnica complexa ou precisares de agendar um técnico ou instalação, posso também marcar uma chamada ou visita técnica no teu **Google Calendar**!',
       isSchedulingTrigger: false,
     };
   };
@@ -442,8 +443,8 @@ export const WortenVirtualAssistant: React.FC<WortenVirtualAssistantProps> = ({
                 action: () => handleSendPrompt('Qual é o valor mínimo para ter entregas grátis?'),
               },
               {
-                label: '↩️ Como funciona a devolução em 14 dias?',
-                action: () => handleSendPrompt('Como funciona a devolução de um artigo em loja no prazo de 14 dias?'),
+                label: '↩️ Como funciona a devolução em 30 dias?',
+                action: () => handleSendPrompt('Como funciona a devolução de um artigo em loja no prazo de 30 dias?'),
               },
             ]
           : [
@@ -456,8 +457,8 @@ export const WortenVirtualAssistant: React.FC<WortenVirtualAssistantProps> = ({
                 action: () => handleSendPrompt('Qual é o valor mínimo para ter entregas grátis?'),
               },
               {
-                label: '↩️ Devoluções em 14 dias',
-                action: () => handleSendPrompt('Como funciona a devolução em 14 dias em loja física?'),
+                label: '↩️ Devoluções em 30 dias',
+                action: () => handleSendPrompt('Como funciona a devolução em 30 dias em loja física?'),
               },
               {
                 label: '🛠️ Reparações Worten Resolve',
@@ -487,8 +488,8 @@ export const WortenVirtualAssistant: React.FC<WortenVirtualAssistantProps> = ({
             action: () => handleSendPrompt('Como funcionam os portes grátis acima de 35€?'),
           },
           {
-            label: '↩️ Devoluções em 14 dias',
-            action: () => handleSendPrompt('Como funciona a devolução em 14 dias em loja?'),
+            label: '↩️ Devoluções em 30 dias',
+            action: () => handleSendPrompt('Como funciona a devolução em 30 dias em loja?'),
           },
         ],
       };
@@ -772,7 +773,7 @@ export const WortenVirtualAssistant: React.FC<WortenVirtualAssistantProps> = ({
               onClick={() => handleSendPrompt('Qual é o prazo e condições de devolução online?')}
               className="px-2.5 py-1 rounded-full bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:text-[#DE001A] hover:bg-red-50 dark:hover:bg-red-950/40 border border-[#E5E5E7] dark:border-neutral-700 transition-colors shrink-0 cursor-pointer"
             >
-              ↩️ Devolução 14d
+              ↩️ Devolução 30d
             </button>
             <button
               onClick={handleStartSchedulingFlow}

@@ -7,30 +7,42 @@ export interface SendProposalEmailParams {
   resumoIA: string;
 }
 
-export async function sendProposalNotificationEmail(params: SendProposalEmailParams): Promise<{
+export interface SendProposalEmailResult {
   success: boolean;
+  status: 'enviada' | 'erro' | 'nao_configurado';
   messageId?: string;
+  dataEnvio?: string;
   error?: string;
-}> {
+}
+
+export async function sendProposalNotificationEmail(
+  params: SendProposalEmailParams
+): Promise<SendProposalEmailResult> {
   const { proposta, propostaUrl, resumoIA } = params;
   const rawKey = process.env.RESEND_API_KEY;
-  // Extrai apenas o token de API (re_...) eliminando espaços, quebras de linha ou texto adicional colado por engano
+  // Extrai apenas o token de API (re_...) eliminando espaços ou texto colado por engano
   const apiKey = (rawKey || '').trim().split(/\s+/)[0];
-  const emailAluno = process.env.EMAIL_ALUNO || 'afonso06pedro@gmail.com';
+  const emailAluno = process.env.EMAIL_ALUNO?.trim() || '';
+
+  // Verificação de configuração: se faltar RESEND_API_KEY válida ou EMAIL_ALUNO
+  if (!apiKey || !apiKey.startsWith('re_') || !emailAluno) {
+    const motivo = !emailAluno
+      ? 'EMAIL_ALUNO não está configurado nas variáveis de ambiente'
+      : 'RESEND_API_KEY não configurada ou inválida (deve começar por re_)';
+
+    console.warn(
+      `[Resend Aviso] Notificação por email não enviada: ${motivo}. A criação da proposta e o link continuam operacionais.`
+    );
+
+    return {
+      success: false,
+      status: 'nao_configurado',
+      error: motivo,
+    };
+  }
 
   console.log(`[Resend Notification] A preparar notificação para o aluno: ${emailAluno}`);
   console.log(`[Resend Notification] Link da proposta gerada: ${propostaUrl}`);
-
-  // Validação estrita: RESEND_API_KEY deve existir e começar por 're_'
-  if (!apiKey || !apiKey.startsWith('re_')) {
-    console.warn(
-      `[Resend Aviso] RESEND_API_KEY não configurada ou inválida. Notificação por email ignorada sem quebrar a criação da proposta nem o retorno para a página /proposta/:token. Destinatário: ${emailAluno}.`
-    );
-    return {
-      success: false,
-      error: 'RESEND_API_KEY não configurada ou inválida (não começa por re_)',
-    };
-  }
 
   try {
     const resend = new Resend(apiKey);
@@ -60,28 +72,26 @@ export async function sendProposalNotificationEmail(params: SendProposalEmailPar
         <div style="padding: 24px;">
           <div style="background-color: #f8fafc; border-left: 4px solid #DE001A; padding: 14px 16px; margin-bottom: 20px; border-radius: 0 8px 8px 0;">
             <p style="margin: 0; font-size: 14px; color: #1e293b; font-weight: bold;">
-              Proposta Nº: ${proposta.numeroProposta}
+              Proposta #${proposta.numeroProposta}
             </p>
-            <p style="margin: 4px 0 0 0; font-size: 13px; color: #64748b;">
-              Validade: 15 dias (até ${new Date(proposta.dataValidade).toLocaleDateString('pt-PT')})
+            <p style="margin: 4px 0 0 0; font-size: 12px; color: #64748b;">
+              Cliente: <strong>${proposta.clienteNome}</strong>
             </p>
           </div>
 
-          <h2 style="font-size: 16px; color: #0f172a; margin-top: 0;">Dados do Pedido:</h2>
-          <ul style="font-size: 14px; color: #334155; line-height: 1.6; padding-left: 20px; margin: 8px 0 20px 0;">
-            <li><strong>Cliente:</strong> ${proposta.clienteNome}</li>
-            <li><strong>Email:</strong> ${proposta.clienteEmail}</li>
-            <li><strong>Resumo IA:</strong> ${resumoIA}</li>
-          </ul>
+          <h3 style="color: #0f172a; font-size: 15px; margin: 0 0 10px 0;">Resumo da Interpretação Técnica:</h3>
+          <p style="font-size: 13px; color: #475569; background: #f1f5f9; padding: 12px; border-radius: 8px; margin: 0 0 20px 0; line-height: 1.5;">
+            ${resumoIA || proposta.interpretacaoResumo || 'Sem observações adicionais.'}
+          </p>
 
-          <h3 style="font-size: 15px; color: #0f172a; margin-bottom: 8px;">Itens Orçamentados (Preços do Firestore):</h3>
-          <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #334155; margin-bottom: 16px;">
+          <h3 style="color: #0f172a; font-size: 15px; margin: 0 0 10px 0;">Serviços Orçamentados:</h3>
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">
             <thead>
-              <tr style="background-color: #f1f5f9; text-align: left; font-size: 12px; color: #475569;">
-                <th style="padding: 8px 12px;">Serviço</th>
-                <th style="padding: 8px 12px; text-align: center;">Qtd</th>
-                <th style="padding: 8px 12px; text-align: right;">Unitário s/ IVA</th>
-                <th style="padding: 8px 12px; text-align: right;">Total s/ IVA</th>
+              <tr style="background-color: #f8fafc; text-align: left; color: #64748b;">
+                <th style="padding: 8px 12px; border-bottom: 2px solid #e2e8f0;">Serviço</th>
+                <th style="padding: 8px 12px; border-bottom: 2px solid #e2e8f0; text-align: center;">Qtd</th>
+                <th style="padding: 8px 12px; border-bottom: 2px solid #e2e8f0; text-align: right;">Unit.</th>
+                <th style="padding: 8px 12px; border-bottom: 2px solid #e2e8f0; text-align: right;">Total</th>
               </tr>
             </thead>
             <tbody>
@@ -89,30 +99,30 @@ export async function sendProposalNotificationEmail(params: SendProposalEmailPar
             </tbody>
             <tfoot>
               <tr>
-                <td colspan="3" style="padding: 10px 12px; text-align: right; font-weight: 600;">Total sem IVA:</td>
-                <td style="padding: 10px 12px; text-align: right; font-weight: 600; color: #0f172a;">${subtotalFormatted} €</td>
+                <td colspan="3" style="padding: 8px 12px; text-align: right; color: #64748b;">Subtotal (s/ IVA):</td>
+                <td style="padding: 8px 12px; text-align: right; font-weight: bold;">${subtotalFormatted} €</td>
               </tr>
-              <tr style="background-color: #fff1f2; color: #DE001A;">
+              <tr style="border-top: 1px solid #e2e8f0;">
                 <td colspan="3" style="padding: 10px 12px; text-align: right; font-weight: bold; font-size: 14px;">Total com IVA (23%):</td>
-                <td style="padding: 10px 12px; text-align: right; font-weight: bold; font-size: 16px;">${totalComIvaFormatted} €</td>
+                <td style="padding: 10px 12px; text-align: right; font-weight: bold; font-size: 16px; color: #DE001A;">${totalComIvaFormatted} €</td>
               </tr>
             </tfoot>
           </table>
 
-          <div style="text-align: center; margin: 32px 0 16px 0;">
+          <div style="text-align: center; margin: 28px 0 12px 0;">
             <a href="${propostaUrl}" style="background-color: #DE001A; color: #ffffff; text-decoration: none; padding: 14px 28px; font-weight: bold; font-size: 14px; border-radius: 8px; display: inline-block; box-shadow: 0 4px 6px -1px rgba(222, 0, 26, 0.3);">
-              Ver Proposta Completa &rarr;
+              Consultar Proposta no Navegador
             </a>
           </div>
 
-          <p style="text-align: center; font-size: 12px; color: #94a3b8; margin: 12px 0 0 0;">
-            Link direto: <a href="${propostaUrl}" style="color: #64748b;">${propostaUrl}</a>
+          <p style="text-align: center; font-size: 11px; color: #94a3b8; margin: 12px 0 0 0;">
+            Validade da proposta: 15 dias. Token: ${proposta.token}
           </p>
         </div>
 
         <div style="background-color: #f8fafc; padding: 16px; text-align: center; border-top: 1px solid #e2e8f0;">
           <p style="margin: 0; font-size: 11px; color: #94a3b8;">
-            Este email é uma notificação estritamente interna de aula para o aluno (${emailAluno}). O cliente final não foi notificado.
+            Este email é uma notificação estritamente interna de avaliação para o aluno. O cliente final não foi notificado.
           </p>
         </div>
       </div>
@@ -129,20 +139,26 @@ export async function sendProposalNotificationEmail(params: SendProposalEmailPar
       console.warn('[Resend Aviso] Resend retornou erro:', data.error.message || data.error);
       return {
         success: false,
-        error: data.error.message,
+        status: 'erro',
+        error: data.error.message || 'Erro devolvido pela API Resend',
       };
     }
 
-    console.log('[Resend Notification] Email enviado com sucesso via Resend! ID:', data.data?.id);
+    const messageId = data.data?.id;
+    const dataEnvio = new Date().toISOString();
+    console.log('[Resend Notification] Email aceite pela API Resend! ID:', messageId);
     return {
       success: true,
-      messageId: data.data?.id,
+      status: 'enviada',
+      messageId,
+      dataEnvio,
     };
   } catch (error: any) {
     console.error('[Resend Notification] Erro ao enviar email via Resend:', error);
     return {
       success: false,
-      error: error?.message || 'Erro no envio do email Resend',
+      status: 'erro',
+      error: error?.message || 'Erro inesperado no envio Resend',
     };
   }
 }

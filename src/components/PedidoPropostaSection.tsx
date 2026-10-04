@@ -31,10 +31,10 @@ export const PedidoPropostaSection: React.FC<PedidoPropostaSectionProps> = ({
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successData, setSuccessData] = useState<{
-    token: string;
-    propostaUrl: string;
-    numeroProposta: string;
-    resumo?: string;
+    token?: string | null;
+    propostaUrl?: string | null;
+    numeroProposta?: string | null;
+    resumo?: string | null;
     totalSemIva?: number;
     totalComIva?: number;
   } | null>(null);
@@ -105,10 +105,10 @@ export const PedidoPropostaSection: React.FC<PedidoPropostaSectionProps> = ({
       }
 
       setSuccessData({
-        token: data.token,
-        propostaUrl: data.propostaUrl || `/proposta/${data.token}`,
-        numeroProposta: data.proposta?.numeroProposta || 'WR-2026',
-        resumo: data.proposta?.interpretacaoResumo,
+        token: data.token || null,
+        propostaUrl: data.propostaUrl || (data.token ? `/proposta/${data.token}` : null),
+        numeroProposta: data.proposta?.numeroProposta || null,
+        resumo: data.proposta?.interpretacaoResumo || data.pedido?.interpretacaoIA?.resumo || null,
         totalSemIva: data.proposta?.totalSemIvaCentimos
           ? data.proposta.totalSemIvaCentimos / 100
           : undefined,
@@ -167,12 +167,16 @@ export const PedidoPropostaSection: React.FC<PedidoPropostaSectionProps> = ({
                   <h3 className="text-xl font-black text-emerald-900 dark:text-emerald-200">
                     O seu pedido foi recebido com sucesso.
                   </h3>
-                  <span className="px-3 py-1 bg-emerald-200/60 dark:bg-emerald-800/50 rounded-full text-xs font-bold text-emerald-800 dark:text-emerald-200">
-                    {successData.numeroProposta}
-                  </span>
+                  {successData.numeroProposta && (
+                    <span className="px-3 py-1 bg-emerald-200/60 dark:bg-emerald-800/50 rounded-full text-xs font-bold text-emerald-800 dark:text-emerald-200">
+                      {successData.numeroProposta}
+                    </span>
+                  )}
                 </div>
                 <p className="mt-2 text-sm text-emerald-800/90 dark:text-emerald-300/90 leading-relaxed">
-                  A nossa inteligência artificial analisou o seu pedido e gerou a sua proposta técnica oficial Worten Resolve com base no catálogo do Firestore.
+                  {successData.token
+                    ? 'A nossa inteligência artificial analisou o seu pedido e gerou a sua proposta técnica oficial Worten Resolve com base no catálogo do Firestore.'
+                    : 'O seu pedido foi recebido e encaminhado para revisão técnica da nossa equipa especializada Worten Resolve para análise detalhada.'}
                   {successData.resumo && (
                     <span className="block mt-2 font-medium italic bg-emerald-100/60 dark:bg-emerald-900/40 p-2.5 rounded-xl border border-emerald-300/40 dark:border-emerald-800/40">
                       &ldquo;{successData.resumo}&rdquo;
@@ -200,15 +204,17 @@ export const PedidoPropostaSection: React.FC<PedidoPropostaSectionProps> = ({
                 )}
 
                 <div className="mt-6 flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => handleOpenProposal(successData.token)}
-                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[#DE001A] hover:bg-[#BF0016] text-white font-bold text-sm shadow-lg shadow-red-500/20 transition-all hover:scale-105 cursor-pointer"
-                  >
-                    <FileText className="w-4 h-4" />
-                    Ver Proposta Detalhada
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
+                  {successData.token && (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenProposal(successData.token!)}
+                      className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[#DE001A] hover:bg-[#BF0016] text-white font-bold text-sm shadow-lg shadow-red-500/20 transition-all hover:scale-105 cursor-pointer"
+                    >
+                      <FileText className="w-4 h-4" />
+                      Ver Proposta Detalhada
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  )}
 
                   <button
                     type="button"
@@ -244,7 +250,7 @@ export const PedidoPropostaSection: React.FC<PedidoPropostaSectionProps> = ({
                   required
                   value={nome}
                   onChange={(e) => setNome(e.target.value)}
-                  placeholder="Ex: Pedro Afonso"
+                  placeholder="Ex: Maria Silva"
                   className="w-full px-4 py-3.5 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#DE001A] focus:border-transparent transition text-sm font-medium"
                 />
               </div>

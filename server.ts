@@ -8,10 +8,13 @@ import { fileURLToPath } from 'url';
 import {
   seedCatalogIfEmpty,
   getActiveCatalogItems,
+  getAllCatalogItems,
   getPropostaByToken,
   getAllPedidos,
   getAllPropostas,
   updateCatalogItem,
+  adminAuth,
+  CatalogItem,
 } from './src/server/firebaseAdmin.ts';
 import { processNovoPedido } from './src/server/aiProposalService.ts';
 
@@ -28,9 +31,6 @@ app.use(express.json());
 // Immediate healthcheck for Google Cloud Run probes
 app.get('/healthz', (_req, res) => res.status(200).send('OK'));
 app.get('/health', (_req, res) => res.status(200).send('OK'));
-
-// Cal.com API Key configuration
-const CAL_API_KEY = process.env.CAL_API_KEY || 'cal_live_cd3ae2c637bf2c13ca8c9d2f28b3ff0f';
 
 // In-memory bookings store
 export interface StoredBooking {
@@ -180,7 +180,7 @@ export function buildWortenSystemInstruction(): string {
 Tratas o cliente sempre por "tu" de forma ágil, empática e amigável.
 Respondes com clareza e precisão a dúvidas comuns:
 - Entregas grátis em compras superiores a 35€ em pequenos formatos expedidos pela Worten (Click & Collect sempre grátis em qualquer loja física).
-- Devoluções em 14 dias em loja física ou com recolha ao domicílio (artigos na embalagem original, com todos os acessórios e respetiva fatura).
+- Devoluções em 30 dias em loja física ou com recolha ao domicílio (artigos na embalagem original, com todos os acessórios e respetiva fatura).
 - Reparações e assistência técnica Worten Resolve (substituição de ecrãs e baterias na hora para smartphones, reparação ao domicílio de grandes eletrodomésticos, manutenção, limpeza e upgrade de computadores).
 
 HORÁRIO E DATA ATUAL DO SISTEMA:
@@ -306,7 +306,7 @@ async function sendBookingToCalCom(params: CalBookingParams): Promise<CalBooking
 
     const payload = {
       start: isoStartTime,
-      eventTypeId: 7177694, // Reunião de 30 min (Afonso Pedro - Worten Resolve)
+      eventTypeId: 7177694, // Reunião de 30 min (Worten Resolve)
       attendee: {
         name: params.name,
         email: params.email,
@@ -318,7 +318,17 @@ async function sendBookingToCalCom(params: CalBookingParams): Promise<CalBooking
       },
     };
 
-    const apiKey = process.env.CAL_API_KEY || CAL_API_KEY;
+    const apiKey = process.env.CAL_API_KEY?.trim();
+    if (!apiKey) {
+      console.warn('[Cal.com v2] CAL_API_KEY não configurada nas variáveis de ambiente.');
+      return {
+        success: false,
+        error: 'CAL_API_KEY não configurada',
+        errorReason: 'A integração com o Cal.com requer a chave CAL_API_KEY configurada nas variáveis de ambiente.',
+        userAdvice: 'Por favor, configura a variável CAL_API_KEY no painel de Secrets.',
+        statusCode: 503,
+      };
+    }
 
     console.log('[Cal.com v2] Enviando agendamento para https://api.cal.com/v2/bookings...', {
       start: payload.start,
@@ -447,9 +457,9 @@ async function handleFallbackBot(userMessage: string, history: Array<{ role: str
   }
 
   // Check if user is asking about returns
-  if (q.includes('devol') || q.includes('troca') || q.includes('reembols') || q.includes('14 dias') || q.includes('desistir')) {
+  if (q.includes('devol') || q.includes('troca') || q.includes('reembols') || q.includes('14 dias') || q.includes('30 dias') || q.includes('desistir')) {
     return {
-      text: 'Podes devolver qualquer artigo no prazo de **14 dias** a contar da entrega, tanto diretamente em qualquer uma das nossas lojas físicas Worten como solicitando recolha ao domicílio na tua área de cliente online.\n\nO produto apenas precisa de estar completo, na embalagem original, com todos os manuais/acessórios e com a fatura de compra.',
+      text: 'Podes devolver qualquer artigo no prazo de **30 dias** a contar da entrega, tanto diretamente em qualquer uma das nossas lojas físicas Worten como solicitando recolha ao domicílio na tua área de cliente online.\n\nO produto apenas precisa de estar completo, na embalagem original, com todos os manuais/acessórios e com a fatura de compra.',
       bookingCreated: false,
     };
   }
@@ -487,7 +497,7 @@ async function handleFallbackBot(userMessage: string, history: Array<{ role: str
 
       // Name extraction
       const nameMatch = userMessage.match(/(?:nome(?:\s+é|:)?|sou o|chamo-me)\s+([A-ZÀ-Úa-zà-ú\s]{2,30})/i);
-      const name = nameMatch ? nameMatch[1].trim() : 'Afonso Pedro';
+      const name = nameMatch ? nameMatch[1].trim() : 'Cliente';
 
       // Notes extraction
       const notesMatch = userMessage.match(/(?:motivo|serviço|notas?|avaria|problema|para)\s+([^,.;\n]+)/i);
@@ -573,7 +583,7 @@ async function handleFallbackBot(userMessage: string, history: Array<{ role: str
   }
 
   return {
-    text: 'Olá! Sou o assistente virtual da **Worten Portugal (Worten Resolve)**. Posso ajudar-te com informações sobre entregas grátis (>35€), devoluções em 14 dias em loja ou reparações técnicas. Se precisares, posso também agendar uma visita técnica ou reunião no futuro (com mínimo de 2 horas de antecedência ou no dia útil seguinte, dias úteis 09:00 às 19:00) com envio direto para o Cal.com!',
+    text: 'Olá! Sou o assistente virtual da **Worten Portugal (Worten Resolve)**. Posso ajudar-te com informações sobre entregas grátis (>35€), devoluções em 30 dias em loja ou reparações técnicas. Se precisares, posso também agendar uma visita técnica ou reunião no futuro (com mínimo de 2 horas de antecedência ou no dia útil seguinte, dias úteis 09:00 às 19:00) com envio direto para o Cal.com!',
     bookingCreated: false,
   };
 }
@@ -642,8 +652,8 @@ app.post('/api/chat', async (req, res) => {
           };
 
           // Sanitize parameters as requested: name, email, startTime, notes
-          const name = args.name || args.fullName || 'Afonso Pedro';
-          const email = args.email || 'afonso06pedro@gmail.com';
+          const name = args.name || args.fullName || 'Cliente Worten';
+          const email = args.email || process.env.EMAIL_ALUNO || '';
           const notes = args.notes || args.serviceReason || 'Assistência Técnica Worten Resolve';
           let startTime = args.startTime;
 
@@ -783,7 +793,8 @@ app.post('/api/bookings', async (req, res) => {
     });
 
     if (!calResult.success) {
-      return res.status(409).json({
+      const statusCode = calResult.statusCode || (calResult.error === 'CAL_API_KEY não configurada' ? 503 : 409);
+      return res.status(statusCode).json({
         success: false,
         calSuccess: false,
         error: calResult.error,
@@ -889,13 +900,21 @@ app.post('/api/pedidos', async (req, res) => {
   const baseUrl = process.env.APP_BASE_URL || process.env.APP_URL || `${protocol}://${host}`;
 
   try {
-    // Processamento do pedido com gravação resiliente (Firestore com fallback comercial local)
+    // Processamento do pedido com gravação resiliente
     const result = await processNovoPedido({
       nome,
       email,
       textoOriginal,
       baseUrl,
     });
+
+    if (!result.proposta) {
+      return res.status(201).json({
+        success: true,
+        message: 'O seu pedido foi recebido com sucesso.',
+        pedido: result.pedido,
+      });
+    }
 
     return res.status(201).json({
       success: true,
@@ -906,35 +925,19 @@ app.post('/api/pedidos', async (req, res) => {
       pedido: result.pedido,
     });
   } catch (error: any) {
-    console.warn('[Firestore Aviso / Processamento]:', error?.message || error);
-    try {
-      const fallbackResult = await processNovoPedido({
-        nome,
-        email,
-        textoOriginal,
-        baseUrl,
-      });
-
-      return res.status(201).json({
-        success: true,
-        message: 'O seu pedido foi recebido com sucesso.',
-        token: fallbackResult.proposta.token,
-        propostaUrl: fallbackResult.propostaUrl,
-        proposta: fallbackResult.proposta,
-        pedido: fallbackResult.pedido,
-      });
-    } catch (innerErr) {
-      console.error('[Processamento Crítico]:', innerErr);
-      return res.status(500).json({
-        success: false,
-        error: 'Ocorreu um erro ao processar o seu pedido. Por favor, tente novamente.',
-      });
-    }
+    console.error('[Processamento Pedido Erro]:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Ocorreu um erro ao processar o seu pedido. Por favor, tente novamente.',
+    });
   }
 });
 
 // 3. GET /api/propostas/:token - Consulta pública de proposta individual por token
 app.get('/api/propostas/:token', async (req, res) => {
+  // Impede a indexação por motores de busca (CORREÇÃO 4)
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+
   try {
     const token = req.params.token;
     if (!token) {
@@ -946,48 +949,98 @@ app.get('/api/propostas/:token', async (req, res) => {
       return res.status(404).json({ error: 'Proposta não encontrada ou link expirado.' });
     }
 
-    return res.json({ success: true, proposta });
+    // Verifica a validade no backend: se dataValidade já passou, responde 410 (CORREÇÃO 4)
+    const agora = Date.now();
+    const dataValidadeMs = new Date(proposta.dataValidade).getTime();
+    if (!isNaN(dataValidadeMs) && dataValidadeMs < agora) {
+      return res.status(410).json({
+        success: false,
+        error: 'Esta proposta expirou.',
+        expirada: true,
+      });
+    }
+
+    // Privacidade da proposta: omite clienteEmail, textoOriginal, notas internas e revisão (CORREÇÃO 4)
+    const publicProposta = {
+      id: proposta.id,
+      numeroProposta: proposta.numeroProposta,
+      token: proposta.token,
+      clienteNome: proposta.clienteNome,
+      itens: proposta.itens,
+      totalSemIvaCentimos: proposta.totalSemIvaCentimos,
+      totalSemIva: proposta.totalSemIva,
+      totalComIvaCentimos: proposta.totalComIvaCentimos,
+      totalComIva: proposta.totalComIva,
+      dataValidade: proposta.dataValidade,
+      validadeDias: proposta.validadeDias,
+      createdAt: proposta.createdAt,
+      status: proposta.status,
+      interpretacaoResumo: proposta.interpretacaoResumo,
+    };
+
+    return res.json({ success: true, proposta: publicProposta });
   } catch (error: any) {
     console.error('Erro em GET /api/propostas/:token:', error);
     return res.status(500).json({ error: 'Erro ao carregar os detalhes da proposta.' });
   }
 });
 
-// Middleware de verificação de permissão Admin
-const verifyAdminAccess = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+// Middleware de verificação de permissão Admin com validação de Firebase ID Token (CORREÇÃO 3)
+const verifyAdminAccess = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   const configuredAdminUid = process.env.ADMIN_UID?.trim();
-  const clientUid = (req.headers['x-admin-uid'] as string)?.trim();
-  const clientEmail = (req.headers['x-admin-email'] as string)?.trim();
 
-  // Se ADMIN_UID estiver definido, valida estritamente a coincidência de UID
-  if (configuredAdminUid) {
-    if (clientUid && clientUid === configuredAdminUid) {
-      return next();
-    }
+  // Se ADMIN_UID não estiver definido, nega o acesso (403) e explica o que configurar
+  if (!configuredAdminUid) {
     return res.status(403).json({
-      error: `Acesso negado: O seu UID (${clientUid || 'não autenticado'}) não coincide com o ADMIN_UID configurado.`,
-      userUid: clientUid || null,
-      configuredAdminUid: configuredAdminUid,
+      error: 'Acesso negado: ADMIN_UID não está configurado nas variáveis de ambiente do servidor.',
+      hint: 'Configure a variável ADMIN_UID com o UID do administrador no painel de Secrets.',
     });
   }
 
-  // Se ADMIN_UID não estiver configurado nas variáveis de ambiente,
-  // permite utilizador autenticado com Google ou o email do aluno para facilitar avaliação
-  if (clientUid || clientEmail === 'afonso06pedro@gmail.com') {
-    return next();
+  const authHeader = (req.headers.authorization || (req.headers['authorization'] as string))?.trim();
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({
+      error: 'Acesso restrito. Cabeçalho Authorization: Bearer <ID token> em falta.',
+    });
   }
 
-  return res.status(401).json({
-    error: 'Acesso restrito. Inicie sessão com a sua conta Google de administrador.',
-  });
+  const idToken = authHeader.split('Bearer ')[1]?.trim();
+  if (!idToken) {
+    return res.status(401).json({
+      error: 'Acesso restrito. Token de autenticação em falta.',
+    });
+  }
+
+  try {
+    if (!adminAuth) {
+      return res.status(503).json({
+        error: 'Serviço de autenticação de administração temporariamente indisponível.',
+      });
+    }
+
+    const decodedToken = await adminAuth.verifyIdToken(idToken);
+    if (!decodedToken || decodedToken.uid !== configuredAdminUid) {
+      console.warn(`[Admin Auth] Tentativa de acesso não autorizado: UID ${decodedToken?.uid} não coincide com ADMIN_UID.`);
+      return res.status(403).json({
+        error: 'Acesso negado: O utilizador autenticado não tem permissões de administrador.',
+      });
+    }
+
+    (req as any).adminUser = decodedToken;
+    return next();
+  } catch (authErr: any) {
+    console.warn('[Admin Auth] Falha na validação do token Firebase:', authErr?.message || authErr);
+    return res.status(401).json({
+      error: 'Sessão inválida ou expirada. Por favor, volte a iniciar sessão com a sua conta Google.',
+    });
+  }
 };
 
-// 4. GET /api/admin/config - Retorna estado da configuração de administrador
+// 4. GET /api/admin/config - Retorna apenas indicadores booleanos de configuração (sem expor UIDs ou emails) (CORREÇÃO 3)
 app.get('/api/admin/config', (_req, res) => {
   res.json({
-    adminUidConfigured: Boolean(process.env.ADMIN_UID),
-    adminUid: process.env.ADMIN_UID || null,
-    studentEmail: process.env.EMAIL_ALUNO || 'afonso06pedro@gmail.com',
+    adminUidConfigured: Boolean(process.env.ADMIN_UID?.trim()),
+    emailAlunoConfigured: Boolean(process.env.EMAIL_ALUNO?.trim()),
   });
 });
 
@@ -1013,10 +1066,10 @@ app.get('/api/admin/propostas', verifyAdminAccess, async (_req, res) => {
   }
 });
 
-// 7. GET /api/admin/catalogo - Lista catálogo completo (incluindo inativos)
+// 7. GET /api/admin/catalogo - Lista catálogo completo (incluindo inativos) (CORREÇÃO 3)
 app.get('/api/admin/catalogo', verifyAdminAccess, async (_req, res) => {
   try {
-    const catalogo = await getActiveCatalogItems();
+    const catalogo = await getAllCatalogItems();
     res.json({ success: true, catalogo });
   } catch (error: any) {
     console.error('Erro em GET /api/admin/catalogo:', error);
@@ -1024,12 +1077,70 @@ app.get('/api/admin/catalogo', verifyAdminAccess, async (_req, res) => {
   }
 });
 
-// 8. PUT /api/admin/catalogo/:id - Editar serviço do catálogo
+// 8. PUT /api/admin/catalogo/:id - Editar serviço do catálogo com validação estrita (CORREÇÃO 3)
 app.put('/api/admin/catalogo/:id', verifyAdminAccess, async (req, res) => {
   try {
     const id = req.params.id;
-    const updates = req.body;
-    const updated = await updateCatalogItem(id, updates);
+    if (!id || typeof id !== 'string' || id.length > 100) {
+      return res.status(400).json({ error: 'Identificador de serviço inválido.' });
+    }
+
+    const { precoCentimos, ativo, nome, categoria, descricao, moeda } = req.body;
+    const validatedUpdates: Partial<CatalogItem> = {};
+
+    if (precoCentimos !== undefined) {
+      if (typeof precoCentimos !== 'number' || !Number.isInteger(precoCentimos) || precoCentimos < 0) {
+        return res.status(400).json({
+          error: 'precoCentimos deve ser um número inteiro maior ou igual a 0.',
+        });
+      }
+      validatedUpdates.precoCentimos = precoCentimos;
+    }
+
+    if (ativo !== undefined) {
+      if (typeof ativo !== 'boolean') {
+        return res.status(400).json({
+          error: 'ativo deve ser um valor booleano (true ou false).',
+        });
+      }
+      validatedUpdates.ativo = ativo;
+    }
+
+    if (nome !== undefined) {
+      if (typeof nome !== 'string' || nome.trim().length === 0 || nome.length > 150) {
+        return res.status(400).json({
+          error: 'nome deve ser uma string com no máximo 150 caracteres.',
+        });
+      }
+      validatedUpdates.nome = nome.trim();
+    }
+
+    if (categoria !== undefined) {
+      if (typeof categoria !== 'string' || categoria.trim().length === 0 || categoria.length > 80) {
+        return res.status(400).json({
+          error: 'categoria deve ser uma string com no máximo 80 caracteres.',
+        });
+      }
+      validatedUpdates.categoria = categoria.trim();
+    }
+
+    if (descricao !== undefined) {
+      if (typeof descricao !== 'string' || descricao.length > 1000) {
+        return res.status(400).json({
+          error: 'descricao deve ter no máximo 1000 caracteres.',
+        });
+      }
+      validatedUpdates.descricao = descricao.trim();
+    }
+
+    if (moeda !== undefined) {
+      if (typeof moeda !== 'string' || moeda.length > 10) {
+        return res.status(400).json({ error: 'moeda inválida.' });
+      }
+      validatedUpdates.moeda = moeda.trim();
+    }
+
+    const updated = await updateCatalogItem(id, validatedUpdates);
     res.json({ success: true, item: updated });
   } catch (error: any) {
     console.error('Erro em PUT /api/admin/catalogo/:id:', error);
@@ -1048,6 +1159,14 @@ app.get(['/favicon.ico', '/favicon.svg'], (_req, res) => {
   res.setHeader('Content-Type', 'image/svg+xml');
   res.setHeader('Cache-Control', 'public, max-age=86400');
   res.send(svg);
+});
+
+// Middleware para impedir indexação por motores de busca em páginas e APIs de propostas (CORREÇÃO 4)
+app.use((req, res, next) => {
+  if (req.path.startsWith('/proposta') || req.path.startsWith('/api/propostas')) {
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  }
+  next();
 });
 
 // Start listening immediately on host 0.0.0.0 and PORT without waiting for Vite or disk operations

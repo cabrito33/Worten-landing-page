@@ -4,6 +4,7 @@ import {
   getActiveCatalogItems,
   savePedido,
   saveProposta,
+  updatePropostaNotificacao,
 } from './firebaseAdmin.ts';
 import type {
   CatalogItem,
@@ -127,28 +128,14 @@ function heuristicFallbackInterpretation(
     }
   }
 
-  // If nothing matched, use general diagnostic
+  // If nothing matched, DO NOT use default item - return empty items with necessitaRevisao (CORREÇÃO 6)
   if (identified.length === 0) {
-    const defaultItem =
-      catalogo.find(
-        (i) =>
-          i.id === 'diagnostico-portatil' ||
-          i.id === 'diagnostico-pc' ||
-          i.id === 'diagnostico-computador'
-      ) || catalogo[0];
-    if (defaultItem) {
-      identified.push({
-        catalogId: defaultItem.id,
-        quantidade: 1,
-        evidencia: 'Enquadramento inicial preventivo para análise técnica em bancada.',
-      });
-    }
     return {
       resumo: `Pedido de assistência geral: "${textoOriginal.slice(0, 100)}..."`,
-      itensIdentificados: identified,
+      itensIdentificados: [],
       informacaoEmFalta: 'Marca, modelo exato e circunstâncias detalhadas da anomalia.',
       necessitaRevisao: true,
-      motivoRevisao: 'A descrição do cliente não aponta diretamente para um serviço pré-tabelado e requer validação de um técnico sénior.',
+      motivoRevisao: 'A descrição do cliente não aponta diretamente para nenhum serviço do catálogo ativo e requer análise técnica manual.',
     };
   }
 
@@ -244,8 +231,18 @@ REGRAS OBRIGATÓRIAS:
     );
 
     if (validItems.length === 0) {
-      console.warn('[Gemini Structured Output] Nenhum item válido encontrado no output da IA, a aplicar heurística.');
-      return heuristicFallbackInterpretation(textoOriginal, catalogo);
+      console.warn('[Gemini Structured Output] Nenhum item do catálogo identificado pelo modelo.');
+      const heuristic = heuristicFallbackInterpretation(textoOriginal, catalogo);
+      if (heuristic.itensIdentificados.length > 0) {
+        return heuristic;
+      }
+      return {
+        resumo: parsed.resumo || `Pedido de assistência: "${textoOriginal.slice(0, 80)}..."`,
+        itensIdentificados: [],
+        informacaoEmFalta: parsed.informacaoEmFalta || 'Informações técnicas detalhadas em falta.',
+        necessitaRevisao: true,
+        motivoRevisao: parsed.motivoRevisao || 'Nenhum serviço tabelado no catálogo oficial foi identificado.',
+      };
     }
 
     return {
@@ -273,8 +270,8 @@ export async function processNovoPedido(params: {
   baseUrl: string;
 }): Promise<{
   pedido: PedidoRecord;
-  proposta: PropostaRecord;
-  propostaUrl: string;
+  proposta: PropostaRecord | null;
+  propostaUrl: string | null;
 }> {
   const { nome, email, textoOriginal, baseUrl } = params;
 
@@ -310,20 +307,51 @@ export async function processNovoPedido(params: {
     }
   }
 
-  // If no items could be mapped, fallback to first catalog item
-  if (itensProposta.length === 0 && catalogoAtivo.length > 0) {
-    const fallbackItem = catalogoAtivo[0];
-    const precoUnitarioCentimos = fallbackItem.precoCentimos;
-    totalSemIvaCentimos = precoUnitarioCentimos;
-    itensProposta.push({
-      catalogId: fallbackItem.id,
-      nome: fallbackItem.nome,
-      categoria: fallbackItem.categoria,
-      quantidade: 1,
-      precoUnitarioCentimos,
-      totalItemCentimos: precoUnitarioCentimos,
-      evidencia: 'Serviço base recomendado para triagem.',
-    });
+  const nowISO = new Date().toISOString();
+  const pedidoId = `ped-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+  // CORREÇÃO 6: Se nenhum item for identificado, NÃO usa o primeiro serviço como "Serviço base".
+  // Guarda o pedido com o estado 'em_revisao' (Necessita de revisão) sem proposta com valor e sem email.
+  if (itensProposta.length === 0) {
+    console.log('[AI Proposal] Nenhum serviço do catálogo identificado. Pedido registado como "em_revisao" sem proposta com valor.');
+
+    const motivo =
+      interpretacao.motivoRevisao ||
+      'Nenhum serviço do catálogo oficial Worten Resolve foi identificado no texto do pedido.';
+    const infoFalta =
+      interpretacao.informacaoEmFalta ||
+      'Informações adicionais sobre o equipamento, avaria ou serviço pretendido são necessárias para orçamentação técnica.';
+
+    const pedidoRecord: PedidoRecord = {
+      id: pedidoId,
+      nome,
+      email,
+      textoOriginal,
+      timestamp: nowISO,
+      data: nowISO,
+      status: 'em_revisao',
+      motivoRevisao: motivo,
+      dadosEstruturadosIA: {
+        ...interpretacao,
+        necessitaRevisao: true,
+        motivoRevisao: motivo,
+        informacaoEmFalta: infoFalta,
+      },
+      interpretacaoIA: {
+        ...interpretacao,
+        necessitaRevisao: true,
+        motivoRevisao: motivo,
+        informacaoEmFalta: infoFalta,
+      },
+    };
+
+    await savePedido(pedidoRecord);
+
+    return {
+      pedido: pedidoRecord,
+      proposta: null,
+      propostaUrl: null,
+    };
   }
 
   // IVA em Portugal: 23%
@@ -331,14 +359,13 @@ export async function processNovoPedido(params: {
 
   // 4. Generate unique Proposal Token & IDs
   const token = crypto.randomUUID();
-  const pedidoId = `ped-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
   const propostaId = `prop-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
   const numeroProposta = `WR-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-  // Validade de 15 dias conforme requisito 2.c
+  // Validade de 15 dias conforme requisito
   const dataValidade = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString();
-  const nowISO = new Date().toISOString();
 
+  // CORREÇÃO 5: Cria a proposta inicialmente com estadoNotificacao = 'pendente'
   const propostaRecord: PropostaRecord = {
     id: propostaId,
     numeroProposta,
@@ -355,7 +382,7 @@ export async function processNovoPedido(params: {
     validadeDias: 15,
     createdAt: nowISO,
     status: 'ativa',
-    estadoNotificacao: 'modo_aula_aluno_notificado',
+    estadoNotificacao: 'pendente',
     interpretacaoResumo: interpretacao.resumo,
     informacaoEmFalta: interpretacao.informacaoEmFalta,
     necessitaRevisao: interpretacao.necessitaRevisao,
@@ -377,7 +404,7 @@ export async function processNovoPedido(params: {
     interpretacaoIA: interpretacao,
   };
 
-  // 5. Save in Firestore ('pedidos' e 'propostas')
+  // 5. Gravar pedido e proposta no Firestore (com notificação inicialmente 'pendente')
   await savePedido(pedidoRecord);
   await saveProposta(propostaRecord);
 
@@ -385,12 +412,34 @@ export async function processNovoPedido(params: {
   const cleanBaseUrl = baseUrl.replace(/\/$/, '');
   const propostaUrl = `${cleanBaseUrl}/proposta/${token}`;
 
-  // 7. Send notification via Resend (strictly internal to student EMAIL_ALUNO; client is NOT emailed)
-  await sendProposalNotificationEmail({
-    proposta: propostaRecord,
-    propostaUrl,
-    resumoIA: interpretacao.resumo,
-  });
+  // 7. CORREÇÃO 5: Tentar envio via Resend e atualizar o estado real no Firestore
+  try {
+    const resendResult = await sendProposalNotificationEmail({
+      proposta: propostaRecord,
+      propostaUrl,
+      resumoIA: interpretacao.resumo,
+    });
+
+    propostaRecord.estadoNotificacao = resendResult.status;
+    propostaRecord.notificacaoMessageId = resendResult.messageId;
+    propostaRecord.notificacaoDataEnvio = resendResult.dataEnvio;
+    propostaRecord.notificacaoErro = resendResult.error;
+
+    await updatePropostaNotificacao(token, {
+      estadoNotificacao: resendResult.status,
+      notificacaoMessageId: resendResult.messageId,
+      notificacaoDataEnvio: resendResult.dataEnvio,
+      notificacaoErro: resendResult.error,
+    });
+  } catch (resendErr: any) {
+    console.error('[Resend Erro]:', resendErr);
+    propostaRecord.estadoNotificacao = 'erro';
+    propostaRecord.notificacaoErro = resendErr?.message || 'Erro inesperado no envio de email';
+    await updatePropostaNotificacao(token, {
+      estadoNotificacao: 'erro',
+      notificacaoErro: resendErr?.message || 'Erro inesperado no envio de email',
+    });
+  }
 
   return {
     pedido: pedidoRecord,

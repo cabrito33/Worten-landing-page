@@ -7,7 +7,6 @@ import {
   Calendar,
   Clock,
   User,
-  Mail,
   ShieldCheck,
   AlertTriangle,
   ArrowLeft,
@@ -37,12 +36,37 @@ export const ProposalViewPage: React.FC<ProposalViewPageProps> = ({
   const [accepted, setAccepted] = useState<boolean>(false);
 
   useEffect(() => {
+    // Impede a indexação por motores de busca (CORREÇÃO 4)
+    let robotsMeta = document.querySelector('meta[name="robots"]') as HTMLMetaElement;
+    let created = false;
+    if (!robotsMeta) {
+      robotsMeta = document.createElement('meta');
+      robotsMeta.name = 'robots';
+      document.head.appendChild(robotsMeta);
+      created = true;
+    }
+    const previous = robotsMeta.content;
+    robotsMeta.content = 'noindex, nofollow';
+
+    return () => {
+      if (created) {
+        robotsMeta.remove();
+      } else {
+        robotsMeta.content = previous;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     const fetchProposal = async () => {
       setLoading(true);
       setError(null);
       try {
         const res = await fetch(`/api/propostas/${token}`);
         const data = await res.json();
+        if (res.status === 410) {
+          throw new Error('Esta proposta expirou.');
+        }
         if (!res.ok || !data.success) {
           throw new Error(data.error || 'Proposta não encontrada.');
         }
@@ -83,15 +107,20 @@ export const ProposalViewPage: React.FC<ProposalViewPageProps> = ({
   }
 
   if (error || !proposta) {
+    const isExpired = error === 'Esta proposta expirou.';
     return (
       <div className="min-h-screen bg-[#F4F4F6] dark:bg-neutral-950 flex items-center justify-center p-4">
         <div className="text-center p-8 bg-white dark:bg-neutral-900 rounded-3xl shadow-xl max-w-md w-full border border-red-200 dark:border-red-900/50">
           <div className="w-16 h-16 rounded-full bg-red-100 dark:bg-red-950/60 text-[#DE001A] flex items-center justify-center mx-auto mb-4">
             <AlertTriangle className="w-8 h-8" />
           </div>
-          <h2 className="text-xl font-black text-neutral-900 dark:text-white">Proposta Não Encontrada</h2>
+          <h2 className="text-xl font-black text-neutral-900 dark:text-white">
+            {isExpired ? 'Proposta Expirada' : 'Proposta Não Encontrada'}
+          </h2>
           <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-2">
-            {error || 'O link pode estar incorreto ou a proposta ter expirado (validade de 15 dias).'}
+            {isExpired
+              ? 'Esta proposta expirou. O prazo de validade de 15 dias foi ultrapassado. Por favor, submeta um novo pedido para obter um orçamento atualizado.'
+              : (error || 'O link pode estar incorreto ou a proposta ter expirado (validade de 15 dias).')}
           </p>
           <button
             onClick={onNavigateHome}
@@ -187,10 +216,6 @@ export const ProposalViewPage: React.FC<ProposalViewPageProps> = ({
                 Dados do Cliente
               </h3>
               <p className="font-bold text-base text-neutral-900 dark:text-white">{proposta.clienteNome}</p>
-              <p className="text-xs text-neutral-600 dark:text-neutral-300 mt-1 flex items-center gap-1.5">
-                <Mail className="w-3.5 h-3.5 text-neutral-400" />
-                {proposta.clienteEmail}
-              </p>
             </div>
 
             {/* Prazos da Proposta */}
@@ -221,21 +246,6 @@ export const ProposalViewPage: React.FC<ProposalViewPageProps> = ({
               <p className="text-sm text-neutral-800 dark:text-neutral-200 leading-relaxed font-medium">
                 {proposta.interpretacaoResumo}
               </p>
-
-              {proposta.necessitaRevisao && (
-                <div className="mt-3 p-3 rounded-xl bg-amber-100/70 dark:bg-amber-900/30 border border-amber-300/50 dark:border-amber-800/40 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                  <div>
-                    <strong>Revisão Prévia Recomendada:</strong> {proposta.motivoRevisao || 'Este serviço pode requerer confirmação adicional de acessibilidade no local ou modelo específico.'}
-                  </div>
-                </div>
-              )}
-
-              {proposta.informacaoEmFalta && (
-                <div className="mt-2 text-xs text-neutral-600 dark:text-neutral-400">
-                  <strong>Nota técnica:</strong> {proposta.informacaoEmFalta}
-                </div>
-              )}
             </div>
           )}
 

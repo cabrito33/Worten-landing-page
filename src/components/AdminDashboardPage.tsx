@@ -38,9 +38,9 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [serverConfig, setServerConfig] = useState<{
     adminUidConfigured: boolean;
-    adminUid: string | null;
-    studentEmail: string;
+    emailAlunoConfigured?: boolean;
   } | null>(null);
+  const [authDeniedError, setAuthDeniedError] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<'pedidos' | 'catalogo' | 'propostas'>('pedidos');
 
@@ -64,12 +64,15 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
       setAuthLoading(false);
+      if (user) {
+        setAuthDeniedError(null);
+      }
     });
 
     return () => unsubscribe();
   }, []);
 
-  // 2. Obter configuração do servidor (ADMIN_UID)
+  // 2. Obter configuração do servidor (indicadores booleanos)
   useEffect(() => {
     fetch('/api/admin/config')
       .then((res) => res.json())
@@ -77,22 +80,19 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
       .catch((err) => console.warn('Erro ao obter admin config:', err));
   }, []);
 
-  // Verificação de autorização com base no UID
-  const isAuthorized = Boolean(
-    currentUser &&
-      (!serverConfig?.adminUidConfigured ||
-        currentUser.uid === serverConfig?.adminUid ||
-        currentUser.email === serverConfig?.studentEmail)
-  );
+  // Verificação de autorização com base no estado e validação do token
+  const isAuthorized = Boolean(currentUser && !authDeniedError);
 
-  // 3. Carregar dados se autorizado
+  // 3. Carregar dados se autenticado com Authorization: Bearer <ID token> (CORREÇÃO 3)
   const loadAdminData = async () => {
     if (!currentUser) return;
     setDataLoading(true);
+    setAuthDeniedError(null);
+
     try {
+      const idToken = await currentUser.getIdToken();
       const headers: Record<string, string> = {
-        'x-admin-uid': currentUser.uid,
-        'x-admin-email': currentUser.email || '',
+        Authorization: `Bearer ${idToken}`,
       };
 
       const [resPedidos, resCat, resProp] = await Promise.all([
@@ -100,6 +100,13 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         fetch('/api/admin/catalogo', { headers }),
         fetch('/api/admin/propostas', { headers }),
       ]);
+
+      if (!resPedidos.ok && (resPedidos.status === 401 || resPedidos.status === 403)) {
+        const errJson = await resPedidos.json().catch(() => ({}));
+        setAuthDeniedError(errJson.error || 'Acesso negado: a sua conta não tem permissões de administrador.');
+        setDataLoading(false);
+        return;
+      }
 
       const [dataPedidos, dataCat, dataProp] = await Promise.all([
         resPedidos.json(),
@@ -118,10 +125,10 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   };
 
   useEffect(() => {
-    if (isAuthorized && currentUser) {
+    if (currentUser) {
       loadAdminData();
     }
-  }, [isAuthorized, currentUser]);
+  }, [currentUser]);
 
   const handleLogin = async () => {
     try {
@@ -161,12 +168,12 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         return;
       }
 
+      const idToken = await currentUser.getIdToken();
       const res = await fetch(`/api/admin/catalogo/${editingItem.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-uid': currentUser.uid,
-          'x-admin-email': currentUser.email || '',
+          Authorization: `Bearer ${idToken}`,
         },
         body: JSON.stringify({
           ...editingItem,
@@ -277,12 +284,20 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
             </div>
 
             <div>
-              <span className="text-[11px] font-bold uppercase text-neutral-500">ADMIN_UID Esperado no Servidor:</span>
+              <span className="text-[11px] font-bold uppercase text-neutral-500">Configuração de ADMIN_UID no Servidor:</span>
               <p className="font-mono text-xs text-neutral-700 dark:text-neutral-300 mt-0.5">
-                {serverConfig?.adminUid || 'Não definido nas variáveis de ambiente'}
+                {serverConfig?.adminUidConfigured
+                  ? 'Configurado'
+                  : 'Não configurado nas variáveis de ambiente'}
               </p>
             </div>
           </div>
+
+          {authDeniedError && (
+            <div className="mt-4 p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 text-xs font-medium border border-amber-300/60 dark:border-amber-900/50">
+              {authDeniedError}
+            </div>
+          )}
 
           {actionMsg && (
             <div className="mt-3 text-xs text-emerald-600 font-bold">
@@ -481,11 +496,11 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                             <span
                               className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
                                 pedido.status === 'proposta_gerada'
-                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
-                                  : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                    : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
                               }`}
                             >
-                              {pedido.status === 'proposta_gerada' ? 'Proposta Gerada' : 'Em Revisão'}
+                              {pedido.status === 'em_revisao' ? 'Necessita de revisão' : pedido.status === 'proposta_gerada' ? 'Proposta Gerada' : pedido.status}
                             </span>
                           </div>
                           <div className="text-xs text-neutral-500 mt-0.5 flex items-center gap-3">
@@ -696,6 +711,44 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
 
                       <div className="mt-2 text-[11px] text-neutral-500">
                         Válida até: {new Date(prop.dataValidade).toLocaleDateString('pt-PT')} (15 dias)
+                      </div>
+
+                      {/* Notificação ao Aluno (CORREÇÃO 5) */}
+                      <div className="mt-3 p-2.5 rounded-2xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200/80 dark:border-neutral-700/60 text-xs">
+                        <div className="text-[11px] font-bold text-neutral-500 mb-1">
+                          Notificação ao aluno:
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                              prop.estadoNotificacao === 'enviada'
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                : prop.estadoNotificacao === 'erro'
+                                ? 'bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300'
+                                : prop.estadoNotificacao === 'nao_configurado'
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                : 'bg-neutral-200 text-neutral-700 dark:bg-neutral-700 dark:text-neutral-300'
+                            }`}
+                          >
+                            {prop.estadoNotificacao === 'enviada'
+                              ? 'Aceite pelo serviço (API)'
+                              : prop.estadoNotificacao === 'erro'
+                              ? 'Falhou'
+                              : prop.estadoNotificacao === 'nao_configurado'
+                              ? 'Não configurado'
+                              : 'Por enviar'}
+                          </span>
+                          {prop.notificacaoMessageId && (
+                            <span className="text-[10px] font-mono text-neutral-500 dark:text-neutral-400">
+                              ID: {prop.notificacaoMessageId.slice(0, 16)}...
+                            </span>
+                          )}
+                          {prop.notificacaoErro && (
+                            <span className="text-[10px] text-red-500 truncate block max-w-full" title={prop.notificacaoErro}>
+                              {prop.notificacaoErro}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
 

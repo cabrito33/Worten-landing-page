@@ -83,11 +83,11 @@ export const FAQSection: React.FC<FAQSectionProps> = ({ onOpenChatbot }) => {
                   </span>
                 </div>
                 <p className="text-xs sm:text-sm text-neutral-600 leading-relaxed max-w-xl font-medium">
-                  Esclarece as tuas dúvidas sobre <strong>portes grátis (&gt;35€)</strong>, <strong>devoluções em 14 dias</strong>, <strong>garantia de 3 anos</strong> ou <strong>financiamento em 24x sem juros</strong>. E se precisares de um técnico da Worten Resolve, agendamos com <strong>sincronização direta no teu Google Calendar</strong>.
+                  Esclarece as tuas dúvidas sobre <strong>portes grátis (&gt;35€)</strong>, <strong>devoluções em 30 dias</strong>, <strong>garantia de 3 anos</strong> ou <strong>financiamento em 24x sem juros</strong>. E se precisares de um técnico da Worten Resolve, agendamos com <strong>sincronização direta no teu Google Calendar</strong>.
                 </p>
                 <div className="flex flex-wrap gap-1.5 pt-1 text-[11px] font-bold text-neutral-600">
                   <span className="px-2 py-0.5 rounded-md bg-white border border-[#E5E5E7]">📦 Portes &gt;35€</span>
-                  <span className="px-2 py-0.5 rounded-md bg-white border border-[#E5E5E7]">↩️ Devoluções 14d</span>
+                  <span className="px-2 py-0.5 rounded-md bg-white border border-[#E5E5E7]">↩️ Devoluções 30d</span>
                   <span className="px-2 py-0.5 rounded-md bg-white border border-[#E5E5E7]">🛠️ Worten Resolve</span>
                   <span className="px-2 py-0.5 rounded-md bg-white border border-[#E5E5E7]">💳 24x s/ Juros</span>
                   <span className="px-2 py-0.5 rounded-md bg-white border border-[#E5E5E7]">📅 Google Calendar Sync</span>

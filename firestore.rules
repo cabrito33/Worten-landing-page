@@ -2,40 +2,38 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isAdmin() {
-      return isSignedIn() && (
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        request.auth.token.email == "afonso06pedro@gmail.com"
-      );
-    }
-
     function isValidId(id) {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
-    // Catálogo: Leitura pública para exibir serviços, escrita permitida
-    match /catalogo/{itemId} {
-      allow read: if true;
-      allow write: if true;
-    }
-
-    // Pedidos: Permite submissão e consulta de pedidos
-    match /pedidos/{pedidoId} {
-      allow read, write: if true;
-    }
-
-    // Propostas: Consulta e gravação pública por token de acesso
-    match /propostas/{propostaId} {
-      allow read, write: if true;
-    }
-
-    // Coleção de administradores
+    // Admins: Nega qualquer leitura e escrita por clientes no frontend (CORREÇÃO 2 e 3)
     match /admins/{adminId} {
-      allow read, write: if isAdmin() && isValidId(adminId);
+      allow read, write: if false;
+    }
+
+    // Catálogo: Leitura pública e escrita com validação de ID
+    match /catalogo/{itemId} {
+      allow get, list: if true;
+      allow write: if isValidId(itemId);
+    }
+
+    // Pedidos: Gravação e consulta
+    match /pedidos/{pedidoId} {
+      allow get: if isValidId(pedidoId);
+      allow list: if true;
+      allow write: if isValidId(pedidoId);
+    }
+
+    // Propostas: Consulta por token/ID e gravação
+    match /propostas/{propostaId} {
+      allow get: if isValidId(propostaId);
+      allow list: if true;
+      allow write: if isValidId(propostaId);
+    }
+
+    // Bloqueio por omissão para qualquer outra coleção ou caminho não especificado
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
