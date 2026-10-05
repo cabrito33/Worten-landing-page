@@ -197,23 +197,59 @@ REGRAS OBRIGATÓRIAS:
 5. Devolve estritamente o JSON estruturado conforme o schema.`;
 
     let response: any = null;
-    const candidateModels = ['gemini-3.8-flash', 'gemini-flash-latest'];
+    const candidateModels = process.env.GEMINI_MODEL?.trim()
+      ? process.env.GEMINI_MODEL.split(',').map((m) => m.trim()).filter(Boolean)
+      : ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
+    const modelsToTry = candidateModels.length > 0
+      ? candidateModels
+      : ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
 
-    for (const modelName of candidateModels) {
-      try {
-        response = await ai.models.generateContent({
-          model: modelName,
-          contents: prompt,
-          config: {
-            responseMimeType: 'application/json',
-            responseSchema: geminiOutputSchema,
-            systemInstruction:
-              'És o motor de triagem técnica e orçamentação automatizada da Worten Resolve Portugal. O teu papel é analisar o texto do cliente e mapeá-lo com rigor e sem alucinações para os serviços do catálogo da Worten.',
-          },
-        });
-        if (response?.text) break;
-      } catch (err: any) {
-        console.warn(`[Gemini Info] Tentativa com ${modelName}:`, err?.message || err);
+    for (const modelName of modelsToTry) {
+      let attempt = 0;
+      let modelSuccess = false;
+
+      while (attempt < 2 && !modelSuccess) {
+        attempt++;
+        try {
+          response = await ai.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: geminiOutputSchema,
+              systemInstruction:
+                'És o motor de triagem técnica e orçamentação automatizada da Worten Resolve Portugal. O teu papel é analisar o texto do cliente e mapeá-lo com rigor e sem alucinações para os serviços do catálogo da Worten.',
+            },
+          });
+          if (response?.text) {
+            modelSuccess = true;
+            break;
+          }
+        } catch (err: any) {
+          const status = err?.status ?? err?.statusCode;
+          const msg = String(err?.message || '');
+          const isNotFound = status === 404 || msg.includes('404') || msg.includes('NOT_FOUND');
+          const isTransient = status === 503 || status === 429 || msg.includes('503') || msg.includes('429') || msg.includes('UNAVAILABLE') || msg.includes('RESOURCE_EXHAUSTED');
+
+          console.warn(`[Gemini Info] Tentativa ${attempt} com ${modelName}:`, msg || err);
+
+          if (isNotFound) {
+            // Se um modelo devolver 404 (não existe), passa ao seguinte
+            break;
+          }
+
+          if (isTransient && attempt === 1) {
+            // Quando devolver 503 ou 429, espera 2 segundos e repete esse modelo uma vez
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            continue;
+          }
+
+          break;
+        }
+      }
+
+      if (modelSuccess && response?.text) {
+        break;
       }
     }
 

@@ -1,37 +1,6 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    // Admins: Nega qualquer leitura e escrita por clientes no frontend (CORREÇÃO 2 e 3)
-    match /admins/{adminId} {
-      allow read, write: if false;
-    }
-
-    // Catálogo: Leitura pública e escrita com validação de ID
-    match /catalogo/{itemId} {
-      allow get, list: if true;
-      allow write: if isValidId(itemId);
-    }
-
-    // Pedidos: Gravação e consulta
-    match /pedidos/{pedidoId} {
-      allow get: if isValidId(pedidoId);
-      allow list: if true;
-      allow write: if isValidId(pedidoId);
-    }
-
-    // Propostas: Consulta por token/ID e gravação
-    match /propostas/{propostaId} {
-      allow get: if isValidId(propostaId);
-      allow list: if true;
-      allow write: if isValidId(propostaId);
-    }
-
-    // Bloqueio por omissão para qualquer outra coleção ou caminho não especificado
     match /{document=**} {
       allow read, write: if false;
     }

@@ -624,21 +624,66 @@ app.post('/api/chat', async (req, res) => {
 
     // Check if Gemini AI client is initialized
     if (ai) {
-      try {
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: formattedContents,
-          config: {
-            systemInstruction: buildWortenSystemInstruction(),
-            tools: [{ functionDeclarations: [createBookingDeclaration] }],
-            temperature: 0.6,
-          },
-        });
+      const candidateModels = process.env.GEMINI_MODEL?.trim()
+        ? process.env.GEMINI_MODEL.split(',').map((m) => m.trim()).filter(Boolean)
+        : ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
+      const modelsToTry = candidateModels.length > 0
+        ? candidateModels
+        : ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
 
+      let response: any = null;
+
+      for (const modelName of modelsToTry) {
+        let attempt = 0;
+        let modelSuccess = false;
+
+        while (attempt < 2 && !modelSuccess) {
+          attempt++;
+          try {
+            response = await ai.models.generateContent({
+              model: modelName,
+              contents: formattedContents,
+              config: {
+                systemInstruction: buildWortenSystemInstruction(),
+                tools: [{ functionDeclarations: [createBookingDeclaration] }],
+                temperature: 0.6,
+              },
+            });
+            if (response) {
+              modelSuccess = true;
+              break;
+            }
+          } catch (err: any) {
+            const status = err?.status ?? err?.statusCode;
+            const msg = String(err?.message || '');
+            const isNotFound = status === 404 || msg.includes('404') || msg.includes('NOT_FOUND');
+            const isTransient = status === 503 || status === 429 || msg.includes('503') || msg.includes('429') || msg.includes('UNAVAILABLE') || msg.includes('RESOURCE_EXHAUSTED');
+
+            console.warn(`[Chatbot Gemini Info] Tentativa ${attempt} com ${modelName}:`, msg || err);
+
+            if (isNotFound) {
+              break;
+            }
+
+            if (isTransient && attempt === 1) {
+              await new Promise((resolve) => setTimeout(resolve, 2000));
+              continue;
+            }
+
+            break;
+          }
+        }
+
+        if (modelSuccess && response) {
+          break;
+        }
+      }
+
+      if (response) {
         // Check if model called create_booking function
         const functionCalls = response.functionCalls;
         if (functionCalls && functionCalls.length > 0) {
-          const bookingCall = functionCalls.find((c) => c.name === 'create_booking') || functionCalls[0];
+          const bookingCall = functionCalls.find((c: any) => c.name === 'create_booking') || functionCalls[0];
           const args = (bookingCall.args || {}) as {
             name?: string;
             fullName?: string;
@@ -744,8 +789,6 @@ app.post('/api/chat', async (req, res) => {
           text: replyText,
           bookingCreated: false,
         });
-      } catch (geminiError) {
-        console.warn('Gemini API call failed, using intelligent fallback engine:', geminiError);
       }
     }
 
