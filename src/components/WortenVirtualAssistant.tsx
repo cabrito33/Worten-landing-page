@@ -411,6 +411,22 @@ export const WortenVirtualAssistant: React.FC<WortenVirtualAssistantProps> = ({
       });
 
       if (!res.ok) {
+        if (res.status === 429) {
+          const errData = await res.json().catch(() => null);
+          const msgText =
+            errData?.text ||
+            errData?.message ||
+            errData?.error ||
+            'Demasiados pedidos. Tenta novamente dentro de instantes.';
+          const assistantMsg: ChatMessage = {
+            id: `assistant-${Date.now()}`,
+            sender: 'assistant',
+            text: `⚠️ **${msgText}**`,
+            timestamp: new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }),
+          };
+          setMessages((prev) => [...prev, assistantMsg]);
+          return;
+        }
         throw new Error(`Erro HTTP ${res.status}`);
       }
 

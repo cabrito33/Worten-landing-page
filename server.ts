@@ -588,8 +588,117 @@ async function handleFallbackBot(userMessage: string, history: Array<{ role: str
   };
 }
 
+// Extração do IP real do cliente (primeiro valor de X-Forwarded-For)
+function getClientIp(req: express.Request): string {
+  const xForwardedFor = req.headers['x-forwarded-for'];
+  if (typeof xForwardedFor === 'string') {
+    const firstIp = xForwardedFor.split(',')[0].trim();
+    if (firstIp) return firstIp;
+  } else if (Array.isArray(xForwardedFor) && xForwardedFor.length > 0) {
+    const firstIp = xForwardedFor[0].split(',')[0].trim();
+    if (firstIp) return firstIp;
+  }
+  return req.ip || req.socket.remoteAddress || '127.0.0.1';
+}
+
+// Limitação simples de pedidos por IP em memória (limpa entradas antigas)
+function createRateLimiter(maxPerMinute: number) {
+  const ipTimestamps: Map<string, number[]> = new Map();
+  const windowMs = 60 * 1000;
+
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const now = Date.now();
+    const clientIp = getClientIp(req);
+
+    // Limpa entradas com mais de 60 segundos para este IP
+    const timestamps = (ipTimestamps.get(clientIp) || []).filter((t) => now - t < windowMs);
+
+    if (timestamps.length >= maxPerMinute) {
+      ipTimestamps.set(clientIp, timestamps);
+      return res.status(429).json({
+        error: 'Demasiados pedidos. Tenta novamente dentro de instantes.',
+        message: 'Demasiados pedidos. Tenta novamente dentro de instantes.',
+        text: 'Demasiados pedidos. Tenta novamente dentro de instantes.',
+        errorReason: 'Demasiados pedidos. Tenta novamente dentro de instantes.',
+        userAdvice: 'Por favor aguarda alguns instantes antes de tentar novamente.',
+      });
+    }
+
+    timestamps.push(now);
+    ipTimestamps.set(clientIp, timestamps);
+
+    // Limpa entradas antigas de outros IPs para libertar memória
+    for (const [ip, list] of ipTimestamps.entries()) {
+      const active = list.filter((t) => now - t < windowMs);
+      if (active.length === 0) {
+        ipTimestamps.delete(ip);
+      } else if (active.length !== list.length) {
+        ipTimestamps.set(ip, active);
+      }
+    }
+
+    next();
+  };
+}
+
+// Limitadores de taxa por IP
+const chatRateLimiter = createRateLimiter(30);
+const bookingsRateLimiter = createRateLimiter(10);
+const pedidosRateLimiter = createRateLimiter(5);
+
+// Middleware de verificação de permissão Admin com validação de Firebase ID Token (CORREÇÃO 3)
+const verifyAdminAccess = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const configuredAdminUid = process.env.ADMIN_UID?.trim();
+
+  // Se ADMIN_UID não estiver definido, nega o acesso (403) e explica o que configurar
+  if (!configuredAdminUid) {
+    return res.status(403).json({
+      error: 'Acesso negado: ADMIN_UID não está configurado nas variáveis de ambiente do servidor.',
+      hint: 'Configure a variável ADMIN_UID com o UID do administrador no painel de Secrets.',
+    });
+  }
+
+  const authHeader = (req.headers.authorization || (req.headers['authorization'] as string))?.trim();
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({
+      error: 'Acesso restrito. Cabeçalho Authorization: Bearer <ID token> em falta.',
+    });
+  }
+
+  const idToken = authHeader.split('Bearer ')[1]?.trim();
+  if (!idToken) {
+    return res.status(401).json({
+      error: 'Acesso restrito. Token de autenticação em falta.',
+    });
+  }
+
+  try {
+    if (!adminAuth) {
+      return res.status(503).json({
+        error: 'Serviço de autenticação de administração temporariamente indisponível.',
+      });
+    }
+
+    const decodedToken = await adminAuth.verifyIdToken(idToken);
+    if (!decodedToken || decodedToken.uid !== configuredAdminUid) {
+      console.warn(`[Admin Auth] Tentativa de acesso não autorizado: UID ${decodedToken?.uid} não coincide com ADMIN_UID.`);
+      return res.status(403).json({
+        error: 'Acesso negado: O utilizador autenticado não tem permissões de administrador.',
+      });
+    }
+
+    (req as any).adminUser = decodedToken;
+    return next();
+  } catch (authErr: any) {
+    console.warn('[Admin Auth] Falha na validação do token Firebase:', authErr?.message || authErr);
+    return res.status(401).json({
+      error: 'Sessão inválida ou expirada. Por favor, volte a iniciar sessão com a sua conta Google.',
+    });
+  }
+};
+
 // API Route: Chat with Worten Assistant & function calling
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', chatRateLimiter, async (req, res) => {
   try {
     const { message, history } = req.body;
 
@@ -808,7 +917,7 @@ app.post('/api/chat', async (req, res) => {
 });
 
 // API Route: Direct create_booking endpoint (receives name, email, startTime, notes)
-app.post('/api/bookings', async (req, res) => {
+app.post('/api/bookings', bookingsRateLimiter, async (req, res) => {
   try {
     const name = req.body.name || req.body.fullName;
     const email = req.body.email;
@@ -888,8 +997,8 @@ app.post('/api/bookings', async (req, res) => {
   }
 });
 
-// API Route: List stored bookings
-app.get('/api/bookings', (_req, res) => {
+// API Route: List stored bookings (protegida com verifyAdminAccess)
+app.get('/api/bookings', verifyAdminAccess, (_req, res) => {
   res.json({
     total: bookingsStore.length,
     bookings: bookingsStore,
@@ -917,7 +1026,7 @@ app.get('/api/catalogo', async (_req, res) => {
 });
 
 // 2. POST /api/pedidos - Submissão do pedido na Landing Page com IA Gemini
-app.post('/api/pedidos', async (req, res) => {
+app.post('/api/pedidos', pedidosRateLimiter, async (req, res) => {
   const nome = (req.body.nome || req.body.name || '').trim();
   const email = (req.body.email || '').trim();
   const textoOriginal = (req.body.textoOriginal || req.body.pedido || req.body.notes || '').trim();
@@ -1027,57 +1136,6 @@ app.get('/api/propostas/:token', async (req, res) => {
     return res.status(500).json({ error: 'Erro ao carregar os detalhes da proposta.' });
   }
 });
-
-// Middleware de verificação de permissão Admin com validação de Firebase ID Token (CORREÇÃO 3)
-const verifyAdminAccess = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  const configuredAdminUid = process.env.ADMIN_UID?.trim();
-
-  // Se ADMIN_UID não estiver definido, nega o acesso (403) e explica o que configurar
-  if (!configuredAdminUid) {
-    return res.status(403).json({
-      error: 'Acesso negado: ADMIN_UID não está configurado nas variáveis de ambiente do servidor.',
-      hint: 'Configure a variável ADMIN_UID com o UID do administrador no painel de Secrets.',
-    });
-  }
-
-  const authHeader = (req.headers.authorization || (req.headers['authorization'] as string))?.trim();
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({
-      error: 'Acesso restrito. Cabeçalho Authorization: Bearer <ID token> em falta.',
-    });
-  }
-
-  const idToken = authHeader.split('Bearer ')[1]?.trim();
-  if (!idToken) {
-    return res.status(401).json({
-      error: 'Acesso restrito. Token de autenticação em falta.',
-    });
-  }
-
-  try {
-    if (!adminAuth) {
-      return res.status(503).json({
-        error: 'Serviço de autenticação de administração temporariamente indisponível.',
-      });
-    }
-
-    const decodedToken = await adminAuth.verifyIdToken(idToken);
-    if (!decodedToken || decodedToken.uid !== configuredAdminUid) {
-      console.warn(`[Admin Auth] Tentativa de acesso não autorizado: UID ${decodedToken?.uid} não coincide com ADMIN_UID.`);
-      return res.status(403).json({
-        error: 'Acesso negado: O utilizador autenticado não tem permissões de administrador.',
-      });
-    }
-
-    (req as any).adminUser = decodedToken;
-    return next();
-  } catch (authErr: any) {
-    console.warn('[Admin Auth] Falha na validação do token Firebase:', authErr?.message || authErr);
-    return res.status(401).json({
-      error: 'Sessão inválida ou expirada. Por favor, volte a iniciar sessão com a sua conta Google.',
-    });
-  }
-};
 
 // 4. GET /api/admin/config - Retorna apenas indicadores booleanos de configuração (sem expor UIDs ou emails) (CORREÇÃO 3)
 app.get('/api/admin/config', (_req, res) => {
