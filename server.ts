@@ -1186,7 +1186,18 @@ app.put('/api/admin/catalogo/:id', verifyAdminAccess, async (req, res) => {
       return res.status(400).json({ error: 'Identificador de serviço inválido.' });
     }
 
-    const { precoCentimos, ativo, nome, categoria, descricao, moeda } = req.body;
+    const {
+      precoCentimos,
+      ativo,
+      nome,
+      categoria,
+      descricao,
+      moeda,
+      unidade,
+      quantidadeMinima,
+      escaloesDesconto,
+      condicoes,
+    } = req.body;
     const validatedUpdates: Partial<CatalogItem> = {};
 
     if (precoCentimos !== undefined) {
@@ -1239,6 +1250,81 @@ app.put('/api/admin/catalogo/:id', verifyAdminAccess, async (req, res) => {
         return res.status(400).json({ error: 'moeda inválida.' });
       }
       validatedUpdates.moeda = moeda.trim();
+    }
+
+    if (unidade !== undefined) {
+      if (typeof unidade !== 'string' || unidade.length > 50) {
+        return res.status(400).json({ error: 'unidade deve ser uma string com no máximo 50 caracteres.' });
+      }
+      validatedUpdates.unidade = unidade.trim();
+    }
+
+    if (condicoes !== undefined) {
+      if (typeof condicoes !== 'string' || condicoes.length > 1000) {
+        return res.status(400).json({ error: 'condicoes deve ter no máximo 1000 caracteres.' });
+      }
+      validatedUpdates.condicoes = condicoes.trim();
+    }
+
+    if (quantidadeMinima !== undefined) {
+      if (
+        typeof quantidadeMinima !== 'number' ||
+        !Number.isInteger(quantidadeMinima) ||
+        quantidadeMinima < 1
+      ) {
+        return res.status(400).json({
+          error: 'quantidadeMinima deve ser um número inteiro maior ou igual a 1.',
+        });
+      }
+      validatedUpdates.quantidadeMinima = quantidadeMinima;
+    }
+
+    if (escaloesDesconto !== undefined) {
+      if (!Array.isArray(escaloesDesconto)) {
+        return res.status(400).json({
+          error: 'escaloesDesconto deve ser um array.',
+        });
+      }
+
+      let previousMin = 0;
+      const sanitizedEscaloes: Array<{ quantidadeMinima: number; descontoPercentagem: number }> = [];
+
+      for (let i = 0; i < escaloesDesconto.length; i++) {
+        const esc = escaloesDesconto[i];
+        if (!esc || typeof esc !== 'object') {
+          return res.status(400).json({
+            error: `Escalão ${i + 1} inválido.`,
+          });
+        }
+        const qMin = esc.quantidadeMinima;
+        const dPerc = esc.descontoPercentagem;
+
+        if (typeof qMin !== 'number' || !Number.isInteger(qMin) || qMin < 1) {
+          return res.status(400).json({
+            error: `Escalão ${i + 1}: quantidadeMinima deve ser um número inteiro maior ou igual a 1.`,
+          });
+        }
+
+        if (qMin <= previousMin) {
+          return res.status(400).json({
+            error: `Escalão ${i + 1}: as quantidades mínimas dos escalões devem ser estritamente crescentes (${qMin} <= ${previousMin}).`,
+          });
+        }
+
+        if (typeof dPerc !== 'number' || isNaN(dPerc) || dPerc < 0 || dPerc > 50) {
+          return res.status(400).json({
+            error: `Escalão ${i + 1}: descontoPercentagem deve ser um número entre 0 e 50.`,
+          });
+        }
+
+        previousMin = qMin;
+        sanitizedEscaloes.push({
+          quantidadeMinima: qMin,
+          descontoPercentagem: dPerc,
+        });
+      }
+
+      validatedUpdates.escaloesDesconto = sanitizedEscaloes;
     }
 
     const updated = await updateCatalogItem(id, validatedUpdates);

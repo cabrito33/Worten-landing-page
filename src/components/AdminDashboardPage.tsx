@@ -149,7 +149,13 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   };
 
   const startEditCatalog = (item: CatalogItem) => {
-    setEditingItem({ ...item });
+    setEditingItem({
+      ...item,
+      quantidadeMinima: item.quantidadeMinima ?? 1,
+      unidade: item.unidade || 'serviço',
+      condicoes: item.condicoes || '',
+      escaloesDesconto: item.escaloesDesconto ? JSON.parse(JSON.stringify(item.escaloesDesconto)) : [],
+    });
     setEditPriceEuros((item.precoCentimos / 100).toFixed(2));
   };
 
@@ -168,6 +174,25 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         return;
       }
 
+      const qtdMin = Math.max(1, Math.round(editingItem.quantidadeMinima ?? 1));
+
+      // Validar escalões
+      const escaloes = (editingItem.escaloesDesconto || []).filter(
+        (esc) => esc.quantidadeMinima > 0 && esc.descontoPercentagem >= 0
+      );
+      for (let i = 0; i < escaloes.length; i++) {
+        if (i > 0 && escaloes[i].quantidadeMinima <= escaloes[i - 1].quantidadeMinima) {
+          alert(`Escalão ${i + 1}: a quantidade mínima (${escaloes[i].quantidadeMinima}) deve ser superior ao escalão anterior (${escaloes[i - 1].quantidadeMinima}).`);
+          setSavingEdit(false);
+          return;
+        }
+        if (escaloes[i].descontoPercentagem < 0 || escaloes[i].descontoPercentagem > 50) {
+          alert('O desconto deve situar-se entre 0% e 50%.');
+          setSavingEdit(false);
+          return;
+        }
+      }
+
       const idToken = await currentUser.getIdToken();
       const res = await fetch(`/api/admin/catalogo/${editingItem.id}`, {
         method: 'PUT',
@@ -178,6 +203,8 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         body: JSON.stringify({
           ...editingItem,
           precoCentimos,
+          quantidadeMinima: qtdMin,
+          escaloesDesconto: escaloes,
         }),
       });
 
@@ -614,9 +641,33 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                           {item.id}
                         </td>
                         <td className="py-3 px-4 font-bold text-neutral-900 dark:text-white">
-                          <div>{item.nome}</div>
+                          <div className="flex items-center gap-2">
+                            <span>{item.nome}</span>
+                            {item.unidade && (
+                              <span className="text-[10px] font-normal text-neutral-500 bg-neutral-100 dark:bg-neutral-800 px-1.5 py-0.5 rounded">
+                                {item.unidade}
+                              </span>
+                            )}
+                          </div>
                           <div className="text-[11px] font-normal text-neutral-500 line-clamp-1">
                             {item.descricao}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2 mt-1 text-[10px] font-semibold text-neutral-600 dark:text-neutral-400">
+                            {item.quantidadeMinima && item.quantidadeMinima > 1 && (
+                              <span className="bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 rounded">
+                                Mínimo (MOQ): {item.quantidadeMinima} {item.unidade || 'unid.'}
+                              </span>
+                            )}
+                            {item.escaloesDesconto && item.escaloesDesconto.length > 0 && (
+                              <span className="bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 px-1.5 py-0.5 rounded">
+                                Descontos: {item.escaloesDesconto.map((e) => `${e.quantidadeMinima} un: ${e.descontoPercentagem}%`).join(' | ')}
+                              </span>
+                            )}
+                            {item.condicoes && (
+                              <span className="text-neutral-400 italic">
+                                &bull; {item.condicoes}
+                              </span>
+                            )}
                           </div>
                         </td>
                         <td className="py-3 px-3 text-center">
@@ -842,6 +893,129 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                   }
                   className="w-full px-4 py-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 text-xs font-medium resize-none"
                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-neutral-500 mb-1">
+                    Unidade
+                  </label>
+                  <select
+                    value={editingItem.unidade || 'serviço'}
+                    onChange={(e) =>
+                      setEditingItem({ ...editingItem, unidade: e.target.value })
+                    }
+                    className="w-full px-4 py-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 text-xs font-bold"
+                  >
+                    <option value="serviço">serviço</option>
+                    <option value="unidade">unidade</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-neutral-500 mb-1">
+                    Qtd. Mínima (MOQ)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={editingItem.quantidadeMinima ?? 1}
+                    onChange={(e) =>
+                      setEditingItem({
+                        ...editingItem,
+                        quantidadeMinima: Math.max(1, parseInt(e.target.value, 10) || 1),
+                      })
+                    }
+                    className="w-full px-4 py-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 text-xs font-bold"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-neutral-500 mb-1">
+                  Condições Específicas <span className="text-neutral-400 font-normal">(Opcional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={editingItem.condicoes || ''}
+                  onChange={(e) =>
+                    setEditingItem({ ...editingItem, condicoes: e.target.value })
+                  }
+                  placeholder="Ex: Quantidade mínima de 10 unidades. Sujeito a confirmação de stock."
+                  className="w-full px-4 py-2 rounded-xl bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 text-xs font-medium"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold uppercase text-neutral-500">
+                    Escalões de Desconto por Volume
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const current = editingItem.escaloesDesconto || [];
+                      const lastMin = current.length > 0 ? current[current.length - 1].quantidadeMinima : 0;
+                      setEditingItem({
+                        ...editingItem,
+                        escaloesDesconto: [
+                          ...current,
+                          { quantidadeMinima: lastMin + 10, descontoPercentagem: 5 },
+                        ],
+                      });
+                    }}
+                    className="text-[11px] font-bold text-[#DE001A] hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Adicionar Escalão
+                  </button>
+                </div>
+                {(!editingItem.escaloesDesconto || editingItem.escaloesDesconto.length === 0) ? (
+                  <p className="text-[11px] text-neutral-400 italic">Sem escalões de desconto configurados.</p>
+                ) : (
+                  <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
+                    {editingItem.escaloesDesconto.map((esc, i) => (
+                      <div key={i} className="flex items-center gap-2 p-2 rounded-xl bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700">
+                        <span className="text-[11px] font-bold text-neutral-500 w-16">Qtd. Mín:</span>
+                        <input
+                          type="number"
+                          min={1}
+                          value={esc.quantidadeMinima}
+                          onChange={(e) => {
+                            const val = Math.max(1, parseInt(e.target.value, 10) || 1);
+                            const updated = [...editingItem.escaloesDesconto!];
+                            updated[i] = { ...updated[i], quantidadeMinima: val };
+                            setEditingItem({ ...editingItem, escaloesDesconto: updated });
+                          }}
+                          className="w-20 px-2.5 py-1 rounded-lg bg-white dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 text-xs font-bold"
+                        />
+                        <span className="text-[11px] font-bold text-neutral-500 ml-2">Desconto:</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={50}
+                          value={esc.descontoPercentagem}
+                          onChange={(e) => {
+                            const val = Math.min(50, Math.max(0, parseInt(e.target.value, 10) || 0));
+                            const updated = [...editingItem.escaloesDesconto!];
+                            updated[i] = { ...updated[i], descontoPercentagem: val };
+                            setEditingItem({ ...editingItem, escaloesDesconto: updated });
+                          }}
+                          className="w-16 px-2.5 py-1 rounded-lg bg-white dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 text-xs font-bold text-emerald-600"
+                        />
+                        <span className="text-xs font-bold text-neutral-500">%</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updated = editingItem.escaloesDesconto!.filter((_, idx) => idx !== i);
+                            setEditingItem({ ...editingItem, escaloesDesconto: updated });
+                          }}
+                          className="ml-auto p-1 text-neutral-400 hover:text-red-500 transition cursor-pointer"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-3 pt-2">

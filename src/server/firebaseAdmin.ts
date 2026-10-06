@@ -28,6 +28,11 @@ try {
 import fs from 'fs';
 import path from 'path';
 
+export interface EscalaoDesconto {
+  quantidadeMinima: number;
+  descontoPercentagem: number;
+}
+
 export interface CatalogItem {
   id: string;
   nome: string;
@@ -38,6 +43,10 @@ export interface CatalogItem {
   descricao: string;
   createdAt: string;
   updatedAt?: string;
+  unidade?: 'serviço' | 'unidade' | string;
+  quantidadeMinima?: number;
+  escaloesDesconto?: EscalaoDesconto[];
+  condicoes?: string;
 }
 
 export interface ProposalItem {
@@ -48,6 +57,11 @@ export interface ProposalItem {
   precoUnitarioCentimos: number;
   totalItemCentimos: number;
   evidencia?: string;
+  unidade?: string;
+  precoBrutoCentimos?: number;
+  descontoPercentagem?: number;
+  descontoCentimos?: number;
+  condicoes?: string;
 }
 
 export interface PedidoRecord {
@@ -65,7 +79,7 @@ export interface PedidoRecord {
     resumo: string;
     itensIdentificados: Array<{
       catalogId: string;
-      quantidade: number;
+      quantidade: number | null;
       evidencia: string;
     }>;
     informacaoEmFalta: string;
@@ -76,7 +90,7 @@ export interface PedidoRecord {
     resumo: string;
     itensIdentificados: Array<{
       catalogId: string;
-      quantidade: number;
+      quantidade: number | null;
       evidencia: string;
     }>;
     informacaoEmFalta: string;
@@ -161,6 +175,36 @@ export const INITIAL_CATALOG_ITEMS: CatalogItem[] = [
     moeda: 'EUR',
     ativo: true,
     descricao: 'Fixação e calibração de suporte de parede e arrumação de cabos para televisor.',
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'substituicao-bateria-smartphone',
+    nome: 'Substituição de Bateria de Smartphone',
+    categoria: 'Reparação',
+    precoCentimos: 4900, // 49.00 €
+    unidade: 'serviço',
+    quantidadeMinima: 1,
+    moeda: 'EUR',
+    ativo: true,
+    descricao: 'Substituição de bateria de smartphone com componentes de alta qualidade e garantia técnica Worten Resolve. (preço de demonstração)',
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'iphone-fornecimento-empresarial',
+    nome: 'iPhone – Fornecimento Empresarial',
+    categoria: 'Produtos',
+    precoCentimos: 89900, // 899.00 €
+    unidade: 'unidade',
+    quantidadeMinima: 10,
+    escaloesDesconto: [
+      { quantidadeMinima: 10, descontoPercentagem: 5 },
+      { quantidadeMinima: 50, descontoPercentagem: 10 },
+      { quantidadeMinima: 100, descontoPercentagem: 15 },
+    ],
+    condicoes: 'Quantidade mínima de 10 unidades. Sujeito a confirmação de stock e prazo de entrega.',
+    moeda: 'EUR',
+    ativo: true,
+    descricao: 'Fornecimento empresarial em volume de equipamentos iPhone. (preço de demonstração)',
     createdAt: new Date().toISOString(),
   },
 ];
@@ -304,16 +348,18 @@ export async function seedCatalogIfEmpty(): Promise<CatalogItem[]> {
         return INITIAL_CATALOG_ITEMS;
       }
 
+      const existingIds = new Set<string>();
       const items: CatalogItem[] = [];
       snap.forEach((d) => {
         const data = d.data() as CatalogItem;
         const itemWithId = { ...data, id: d.id };
         items.push(itemWithId);
+        existingIds.add(d.id);
         inMemoryCatalog.set(d.id, itemWithId);
       });
 
       for (const defItem of INITIAL_CATALOG_ITEMS) {
-        if (!inMemoryCatalog.has(defItem.id)) {
+        if (!existingIds.has(defItem.id)) {
           await adminDb.collection('catalogo').doc(defItem.id).set(removeUndefined(defItem));
           inMemoryCatalog.set(defItem.id, { ...defItem });
           items.push(defItem);
@@ -340,16 +386,18 @@ export async function seedCatalogIfEmpty(): Promise<CatalogItem[]> {
       return INITIAL_CATALOG_ITEMS;
     }
 
+    const existingIds = new Set<string>();
     const items: CatalogItem[] = [];
     snap.forEach((d) => {
       const data = d.data() as CatalogItem;
       const itemWithId = { ...data, id: d.id };
       items.push(itemWithId);
+      existingIds.add(d.id);
       inMemoryCatalog.set(d.id, itemWithId);
     });
 
     for (const defItem of INITIAL_CATALOG_ITEMS) {
-      if (!inMemoryCatalog.has(defItem.id)) {
+      if (!existingIds.has(defItem.id)) {
         await webSetDoc(webDoc(webDb, 'catalogo', defItem.id), removeUndefined(defItem));
         inMemoryCatalog.set(defItem.id, { ...defItem });
         items.push(defItem);
@@ -379,13 +427,23 @@ export async function getAllCatalogItems(): Promise<CatalogItem[]> {
     try {
       const snap = await adminDb.collection('catalogo').get();
       if (!snap.empty) {
+        const existingIds = new Set<string>();
         const items: CatalogItem[] = [];
         snap.forEach((d) => {
           const data = d.data() as CatalogItem;
           const itemWithId = { ...data, id: d.id };
           items.push(itemWithId);
+          existingIds.add(d.id);
           inMemoryCatalog.set(d.id, itemWithId);
         });
+
+        for (const defItem of INITIAL_CATALOG_ITEMS) {
+          if (!existingIds.has(defItem.id)) {
+            await adminDb.collection('catalogo').doc(defItem.id).set(removeUndefined(defItem));
+            inMemoryCatalog.set(defItem.id, { ...defItem });
+            items.push(defItem);
+          }
+        }
         return items;
       }
     } catch (err: any) {
@@ -396,13 +454,23 @@ export async function getAllCatalogItems(): Promise<CatalogItem[]> {
   try {
     const snap = await webGetDocs(webCollection(webDb, 'catalogo'));
     if (!snap.empty) {
+      const existingIds = new Set<string>();
       const items: CatalogItem[] = [];
       snap.forEach((d) => {
         const data = d.data() as CatalogItem;
         const itemWithId = { ...data, id: d.id };
         items.push(itemWithId);
+        existingIds.add(d.id);
         inMemoryCatalog.set(d.id, itemWithId);
       });
+
+      for (const defItem of INITIAL_CATALOG_ITEMS) {
+        if (!existingIds.has(defItem.id)) {
+          await webSetDoc(webDoc(webDb, 'catalogo', defItem.id), removeUndefined(defItem));
+          inMemoryCatalog.set(defItem.id, { ...defItem });
+          items.push(defItem);
+        }
+      }
       return items;
     }
   } catch (err: any) {

@@ -272,6 +272,11 @@ export const ProposalViewPage: React.FC<ProposalViewPageProps> = ({
                     <tr key={idx} className="hover:bg-neutral-50 dark:hover:bg-neutral-800/30 transition">
                       <td className="py-3.5 px-4 font-bold text-neutral-900 dark:text-white">
                         <div>{item.nome}</div>
+                        {item.condicoes && (
+                          <div className="text-[11px] font-medium text-amber-700 dark:text-amber-400 mt-1 flex items-center gap-1">
+                            <span>ℹ️ {item.condicoes}</span>
+                          </div>
+                        )}
                         {item.evidencia && (
                           <div className="text-[11px] font-normal text-neutral-500 dark:text-neutral-400 italic mt-0.5">
                             Evidência: &ldquo;{item.evidencia}&rdquo;
@@ -284,13 +289,34 @@ export const ProposalViewPage: React.FC<ProposalViewPageProps> = ({
                         </span>
                       </td>
                       <td className="py-3.5 px-3 text-center font-bold text-neutral-900 dark:text-white">
-                        {item.quantidade}
+                        <span>{item.quantidade}</span>
+                        {item.unidade && (
+                          <span className="block text-[10px] font-normal text-neutral-500 dark:text-neutral-400">
+                            {item.unidade}
+                          </span>
+                        )}
                       </td>
                       <td className="py-3.5 px-4 text-right font-medium text-neutral-700 dark:text-neutral-300">
                         {(item.precoUnitarioCentimos / 100).toFixed(2)} €
                       </td>
-                      <td className="py-3.5 px-4 text-right font-bold text-neutral-900 dark:text-white">
-                        {(item.totalItemCentimos / 100).toFixed(2)} €
+                      <td className="py-3.5 px-4 text-right">
+                        {item.descontoPercentagem && item.descontoPercentagem > 0 ? (
+                          <div className="space-y-0.5">
+                            <div className="text-xs text-neutral-400 line-through">
+                              {((item.precoBrutoCentimos || item.quantidade * item.precoUnitarioCentimos) / 100).toFixed(2)} €
+                            </div>
+                            <div className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                              Desconto por quantidade ({item.descontoPercentagem}%): -{((item.descontoCentimos || 0) / 100).toFixed(2)} €
+                            </div>
+                            <div className="font-bold text-neutral-900 dark:text-white text-sm">
+                              {(item.totalItemCentimos / 100).toFixed(2)} €
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="font-bold text-neutral-900 dark:text-white">
+                            {(item.totalItemCentimos / 100).toFixed(2)} €
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))}
