@@ -9,8 +9,16 @@ import {
   getDoc,
   setDoc,
   updateDoc,
+  setLogLevel,
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
+
+// Silencia logs internos do SDK do Firestore (evita ruído de GrpcConnection / Disconnecting idle stream)
+try {
+  setLogLevel('silent');
+} catch {
+  // Ignora se não suportado
+}
 
 const app = initializeApp(firebaseConfig);
 

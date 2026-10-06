@@ -14,8 +14,16 @@ import {
   query as webQuery,
   where as webWhere,
   limit as webLimit,
+  setLogLevel,
 } from 'firebase/firestore';
 import type { Firestore as WebFirestore } from 'firebase/firestore';
+
+// Silencia logs internos do SDK do Firestore (evita ruído de GrpcConnection / Disconnecting idle stream)
+try {
+  setLogLevel('silent');
+} catch {
+  // Ignora se não suportado
+}
 
 import fs from 'fs';
 import path from 'path';
